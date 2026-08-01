@@ -112,7 +112,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   }
 }
 
-async function j<T = any>(
+export async function j<T = any>(
   path: string,
   init?: RequestInit,
   needsAuth = false

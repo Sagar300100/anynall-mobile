@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -14,9 +14,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AuctionPanel } from '@/components/auction-panel';
+import { GetReadySheet } from '@/components/get-ready-sheet';
 import { useBrandColors } from '@/components/ui/form';
+import { WinnerPaymentSheet } from '@/components/winner-payment-sheet';
 import { Fonts, Spacing } from '@/constants/theme';
 import { sendMessage, subscribeMessages, type ChatDoc } from '@/lib/chat';
+import {
+  getCommerceProfile,
+  isReadyToBid,
+  type AuctionRecord,
+  type CommerceProfile,
+} from '@/lib/commerce';
+import { listenAuctions, listenProducts, type ProductDoc } from '@/lib/realtime';
 import { useSession } from '@/lib/session';
 import { useShows } from '@/hooks/use-shows';
 
@@ -32,11 +42,71 @@ export default function LiveRoomScreen() {
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList<ChatDoc>>(null);
 
+  // ── Live commerce state (Firestore) ────────────────────────────────
+  const [auctions, setAuctions] = useState<AuctionRecord[]>([]);
+  const [products, setProducts] = useState<ProductDoc[]>([]);
+  const [profile, setProfile] = useState<CommerceProfile | null>(null);
+  const [getReadyOpen, setGetReadyOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Winner sheet dismissal is per-auction so a new auction can re-open it.
+  const [dismissedWinFor, setDismissedWinFor] = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     const unsubscribe = subscribeMessages(String(id), setMessages);
     return unsubscribe;
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const offAuctions = listenAuctions(String(id), setAuctions);
+    const offProducts = listenProducts(String(id), setProducts);
+    return () => {
+      offAuctions();
+      offProducts();
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  // Newest auction drives the panel; ended ones fall out of the UI on their
+  // own because the panel renders nothing for final statuses.
+  const auction = auctions[0] || null;
+  const auctionProduct = auction
+    ? products.find((p) => p.id === auction.productId) || null
+    : null;
+
+  const showWinnerSheet =
+    !!auction &&
+    auction.status === 'awaiting_winner_payment' &&
+    (auction.winnerUid || auction.currentBidderUid) === user?.uid &&
+    dismissedWinFor !== auction.id;
+
+  /** Bid gate: profile must satisfy the server's preconditions, otherwise we
+   *  open the one-time setup sheet and skip this bid. */
+  const ensureReady = useCallback(async (): Promise<boolean> => {
+    let p = profile;
+    if (!p) {
+      try {
+        p = await getCommerceProfile();
+        setProfile(p);
+      } catch {
+        setNotice('Could not check your bid setup — try again.');
+        return false;
+      }
+    }
+    if (isReadyToBid(p)) return true;
+    if (p && p.unpaidWins >= p.maxUnpaidWins) {
+      setNotice('Complete your pending payment to continue bidding.');
+      return false;
+    }
+    setGetReadyOpen(true);
+    return false;
+  }, [profile]);
 
   async function handleSend() {
     const text = draft.trim();
@@ -122,6 +192,24 @@ export default function LiveRoomScreen() {
             )}
           />
 
+          {/* Transient error/notice banner */}
+          {!!notice && (
+            <View style={[styles.notice, { backgroundColor: 'rgba(230,57,70,0.14)', borderColor: 'rgba(230,57,70,0.5)' }]}>
+              <Text style={{ color: c.text, fontSize: 13, fontFamily: Fonts.sans }}>{notice}</Text>
+            </View>
+          )}
+
+          {/* Live auction */}
+          {auction && (
+            <AuctionPanel
+              auction={auction}
+              product={auctionProduct}
+              myUid={user?.uid}
+              ensureReady={ensureReady}
+              onError={setNotice}
+            />
+          )}
+
           {/* Composer */}
           <View style={[styles.composer, { borderColor: c.border, backgroundColor: 'rgba(10,20,40,0.85)' }]}>
             <TextInput
@@ -150,6 +238,27 @@ export default function LiveRoomScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* One-time bid setup */}
+      <GetReadySheet
+        visible={getReadyOpen}
+        profile={profile}
+        onReady={() => {
+          setGetReadyOpen(false);
+          getCommerceProfile().then(setProfile).catch(() => {});
+          setNotice('You’re all set — tap Bid again to place your bid.');
+        }}
+        onClose={() => setGetReadyOpen(false)}
+      />
+
+      {/* Winner payment */}
+      {showWinnerSheet && auction && (
+        <WinnerPaymentSheet
+          auction={auction}
+          profile={profile}
+          onDone={() => setDismissedWinFor(auction.id)}
+        />
+      )}
     </View>
   );
 }
@@ -188,7 +297,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   chatArea: { flex: 1, justifyContent: 'flex-end' },
-  chatList: { maxHeight: '55%', flexGrow: 0 },
+  chatList: { maxHeight: '48%', flexGrow: 0 },
   chatContent: { padding: Spacing.three, gap: Spacing.two + Spacing.one },
   msgRow: { flexDirection: 'row', gap: Spacing.two, alignItems: 'flex-start' },
   msgAvatar: {
@@ -202,11 +311,20 @@ const styles = StyleSheet.create({
   msgBody: { flex: 1 },
   msgUser: { fontSize: 11, fontFamily: Fonts.sansMedium },
   msgText: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 19 },
+  notice: {
+    marginHorizontal: Spacing.three,
+    marginBottom: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
   composer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
     margin: Spacing.three,
+    marginTop: 0,
     borderWidth: 1,
     borderRadius: 24,
     paddingLeft: Spacing.three,
