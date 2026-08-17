@@ -1,6 +1,12 @@
 // Shared footer for both Profile states (guest + signed in): dynamic app
 // version from config — never hardcoded — and the real legal pages.
+//
+// Legal/Privacy open the IN-APP documents (/legal/*) — same verbatim text as
+// the site, readable at phone size, no browser bounce. About stays a site
+// link: the About page is a marketing surface the app deliberately doesn't
+// carry (see PRODUCT.md anti-references).
 import Constants from 'expo-constants';
+import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -13,6 +19,12 @@ export function openSite(path: string) {
   WebBrowser.openBrowserAsync(`${SITE}${path}`).catch(() => {});
 }
 
+const LINKS: { label: string; open: () => void }[] = [
+  { label: 'Legal', open: () => router.push('/legal/terms') },
+  { label: 'Privacy', open: () => router.push('/legal/privacy') },
+  { label: 'About Any&All', open: () => openSite('/about') },
+];
+
 export function ProfileFooter() {
   const c = useBrandColors();
   const version = Constants.expoConfig?.version;
@@ -22,17 +34,11 @@ export function ProfileFooter() {
         <Text style={[styles.footerVersion, { color: c.textFaint }]}>App version {version}</Text>
       )}
       <View style={styles.footerLinks}>
-        {(
-          [
-            ['Legal', '/terms'],
-            ['Privacy', '/privacy'],
-            ['About Any&All', '/about'],
-          ] as const
-        ).map(([label, path], i) => (
-          <View key={path} style={styles.footerLinkWrap}>
+        {LINKS.map(({ label, open }, i) => (
+          <View key={label} style={styles.footerLinkWrap}>
             {i > 0 && <Text style={[styles.footerDot, { color: c.textFaint }]}>·</Text>}
             <Pressable
-              onPress={() => openSite(path)}
+              onPress={open}
               accessibilityRole="link"
               accessibilityLabel={label}
               hitSlop={8}

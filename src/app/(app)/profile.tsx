@@ -34,7 +34,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CardRow, SignOutRow } from '@/components/account-menu';
 import { GetReadySheet } from '@/components/get-ready-sheet';
 import { GuestProfileScreen } from '@/components/guest-profile';
-import { openSite, ProfileFooter } from '@/components/profile-footer';
+import { ProfileFooter } from '@/components/profile-footer';
 import { ProfilePhotoSheet } from '@/components/profile-photo-sheet';
 import { useProfilePhoto } from '@/hooks/use-profile-photo';
 import { useBrandColors } from '@/components/ui/form';
@@ -253,8 +253,8 @@ export default function ProfileScreen() {
           <CardRow
             icon="help-circle-outline"
             label="Help & support"
-            support="FAQs, contact and support tickets"
-            onPress={() => openSite('/help')}
+            support="FAQs, assistant, contact and support tickets"
+            onPress={() => router.push('/help')}
           />
         </View>
 

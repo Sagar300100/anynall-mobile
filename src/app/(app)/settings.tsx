@@ -95,6 +95,34 @@ export default function SettingsScreen() {
               loading={sending}
             />
           </MenuGroup>
+
+          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>HELP & LEGAL</Text>
+          <MenuGroup>
+            <MenuRow
+              icon="help-circle-outline"
+              label="Help Center"
+              support="FAQs, the assistant and support tickets"
+              onPress={() => router.push('/help')}
+            />
+            <MenuRow
+              icon="document-text-outline"
+              label="Terms & Conditions"
+              support="The rules of using Any&All"
+              onPress={() => router.push('/legal/terms')}
+            />
+            <MenuRow
+              icon="lock-closed-outline"
+              label="Privacy Policy"
+              support="How your data is collected and used"
+              onPress={() => router.push('/legal/privacy')}
+            />
+            <MenuRow
+              icon="return-down-back-outline"
+              label="Returns & Refunds"
+              support="When and how you get your money back"
+              onPress={() => router.push('/legal/refund')}
+            />
+          </MenuGroup>
         </ScrollView>
       )}
     </SafeAreaView>

@@ -131,6 +131,12 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="show-room/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="show-new" options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="welcome" options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="help" options={{ href: null }} />
+      <Tabs.Screen name="my-tickets" options={{ href: null }} />
+      <Tabs.Screen name="support-ticket" options={{ href: null }} />
+      {/* Chat hides the bar so the composer sits on the keyboard, like DMs. */}
+      <Tabs.Screen name="support-chat" options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="legal/[doc]" options={{ href: null }} />
     </Tabs>
   );
 }
