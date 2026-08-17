@@ -1,7 +1,8 @@
 // Shared UI primitives styled to the website's brand-v2 system: white
 // primary buttons with navy text, ghost buttons with blue hairlines, dark
 // panel inputs, mono uppercase eyebrows, serif display headings.
-import { forwardRef } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { forwardRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -77,31 +78,57 @@ export function DisplayEm({ children, size = 32 }: { children: string; size?: nu
   );
 }
 
-type FieldProps = TextInputProps & { label: string; error?: string | null };
+type FieldProps = TextInputProps & {
+  label: string;
+  error?: string | null;
+  /** Optional leading icon inside the input (Ionicons name). */
+  leftIcon?: keyof typeof Ionicons.glyphMap;
+  /** Optional trailing element (e.g. a password-visibility toggle). */
+  rightSlot?: ReactNode;
+};
 
 export const Field = forwardRef<TextInput, FieldProps>(function Field(
-  { label, error, style, ...props },
+  { label, error, leftIcon, rightSlot, style, onFocus, onBlur, ...props },
   ref
 ) {
   const c = useBrandColors();
+  const [focused, setFocused] = useState(false);
+  const borderColor = error ? c.danger : focused ? c.primary : c.border;
+
   return (
     <View style={styles.fieldWrap}>
-      <Text style={[styles.label, { color: c.textSecondary }]}>{label}</Text>
-      <TextInput
-        ref={ref}
-        placeholderTextColor={c.textFaint}
+      {!!label && <Text style={[styles.label, { color: c.textSecondary }]}>{label}</Text>}
+      <View
         style={[
-          styles.input,
-          {
-            color: c.text,
-            backgroundColor: c.backgroundElement,
-            borderColor: error ? c.danger : c.border,
-          },
-          style,
+          styles.inputRow,
+          { backgroundColor: c.backgroundElement, borderColor },
         ]}
-        {...props}
-      />
-      {!!error && <Text style={[styles.error, { color: c.danger }]}>{error}</Text>}
+      >
+        {leftIcon && (
+          <Ionicons name={leftIcon} size={18} color={focused ? c.primary : c.textSecondary} />
+        )}
+        <TextInput
+          ref={ref}
+          placeholderTextColor={c.textFaint}
+          accessibilityLabel={label}
+          onFocus={(e) => {
+            setFocused(true);
+            onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            onBlur?.(e);
+          }}
+          style={[styles.inputInner, { color: c.text }, style]}
+          {...props}
+        />
+        {rightSlot}
+      </View>
+      {!!error && (
+        <Text accessibilityLiveRegion="polite" style={[styles.error, { color: c.danger }]}>
+          {error}
+        </Text>
+      )}
     </View>
   );
 });
@@ -176,10 +203,16 @@ const styles = StyleSheet.create({
   fieldWrap: { gap: Spacing.one + 2, alignSelf: 'stretch' },
   label: { fontSize: 13, fontFamily: Fonts.sansMedium },
   error: { fontSize: 13, fontFamily: Fonts.sans },
-  input: {
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two + 2,
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: 10,
     paddingHorizontal: Spacing.three,
+  },
+  inputInner: {
+    flex: 1,
     paddingVertical: 13,
     fontSize: 16,
     fontFamily: Fonts.sans,

@@ -1,0 +1,219 @@
+// Client side of the auction engine.
+//
+// THE ONE RULE THIS FILE EXISTS TO ENFORCE: the socket is an accelerator, not
+// a dependency. Every function here is safe to call when the engine is down,
+// unreachable, or not deployed at all — `isReady()` returns false and the
+// caller bids over HTTP exactly as it always has. A buyer must never be unable
+// to bid because a performance optimisation is unhealthy.
+//
+// See ../../../AUCTION-ENGINE.md.
+import { auth } from './firebase';
+
+/** Unset in any build where the engine hasn't been deployed — which is the
+ *  normal state until it has, and must stay harmless. */
+const ENGINE_URL = process.env.EXPO_PUBLIC_AUCTION_ENGINE_URL || '';
+
+/** Auction state as the engine broadcasts it. Mirrors registry.publicView(). */
+export interface EngineAuction {
+  id: string;
+  showId: string | null;
+  productId: string | null;
+  status: string;
+  startPrice: number;
+  bidStep: number;
+  currentBid: number;
+  currentBidderUid: string | null;
+  currentBidderName: string | null;
+  bidCount: number;
+  endsAt: string | null;
+  suddenDeath: boolean;
+  version: number;
+}
+
+export interface EngineError {
+  code: string;
+  message: string;
+  auctionId?: string;
+  minNext?: number;
+}
+
+type StateHandler = (auctions: EngineAuction[]) => void;
+type BidHandler = (auction: EngineAuction) => void;
+type ErrorHandler = (err: EngineError) => void;
+
+interface Subscription {
+  showId: string;
+  onState: StateHandler;
+  onBid: BidHandler;
+  onError: ErrorHandler;
+}
+
+let socket: WebSocket | null = null;
+let authed = false;
+/** Backoff so a dead engine is retried politely rather than hammered. */
+let retryMs = 1000;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+const subs = new Map<string, Subscription>();
+/** auctionId -> when this device last sent a bid, for round-trip timing. */
+const inflight = new Map<string, number>();
+
+function log(message: string) {
+  console.warn(`[engine] ${message}`);
+}
+
+/** True only when a bid sent right now would actually reach the authority.
+ *  Callers branch on this to decide socket vs HTTP. */
+export function isReady(): boolean {
+  return !!socket && socket.readyState === WebSocket.OPEN && authed;
+}
+
+function send(msg: Record<string, unknown>): boolean {
+  if (!isReady()) return false;
+  socket?.send(JSON.stringify(msg));
+  return true;
+}
+
+function scheduleReconnect() {
+  // No subs.size guard: the socket is opened at SIGN-IN and stays up for the
+  // whole session, so the first bid in any room already has it ready. Gated
+  // on being signed in, so sign-out genuinely ends it.
+  if (retryTimer || !auth.currentUser) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    // Capped: a long outage should not turn into a busy loop, and there is no
+    // urgency — HTTP is serving bids the whole time.
+    retryMs = Math.min(retryMs * 2, 30_000);
+    connect().catch(() => {});
+  }, retryMs);
+}
+
+function handle(raw: string) {
+  let msg: Record<string, unknown>;
+  try {
+    msg = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  if (msg.t === 'hello') {
+    authed = true;
+    retryMs = 1000;
+    // Re-subscribe everything after a reconnect, so a dropped socket restores
+    // itself without the screens knowing it happened.
+    for (const showId of subs.keys()) send({ t: 'sub', showId });
+    log('connected');
+    return;
+  }
+
+  if (msg.t === 'state' && typeof msg.showId === 'string') {
+    subs.get(msg.showId)?.onState((msg.auctions as EngineAuction[]) ?? []);
+    return;
+  }
+
+  if (msg.t === 'bid' && msg.auction) {
+    const auction = msg.auction as EngineAuction;
+    // Round trip for a bid THIS device sent: tap → engine → back. The number
+    // that actually matters, measured rather than assumed.
+    const sentAt = inflight.get(auction.id);
+    if (sentAt !== undefined) {
+      inflight.delete(auction.id);
+      log(`bid round trip ${Date.now() - sentAt}ms`);
+    }
+    if (auction.showId) subs.get(auction.showId)?.onBid(auction);
+    return;
+  }
+
+  if (msg.t === 'err') {
+    const err: EngineError = {
+      code: String(msg.code ?? 'ENGINE_ERROR'),
+      message: String(msg.message ?? 'Something went wrong.'),
+      auctionId: typeof msg.auctionId === 'string' ? msg.auctionId : undefined,
+      minNext: typeof msg.minNext === 'number' ? msg.minNext : undefined,
+    };
+    // An error names an auction, not a show, so it goes to every subscriber —
+    // there is at most a handful, and mis-routing a rejection is worse than
+    // delivering it broadly.
+    for (const s of subs.values()) s.onError(err);
+  }
+}
+
+/** Open the socket and authenticate. Resolves either way — failure is a
+ *  normal, expected state, not an exception the caller has to handle. */
+export async function connect(): Promise<void> {
+  if (!ENGINE_URL || socket) return;
+
+  const token = await auth.currentUser?.getIdToken().catch(() => null);
+  if (!token) return;
+
+  try {
+    const ws = new WebSocket(ENGINE_URL);
+    socket = ws;
+
+    ws.onopen = () => {
+      // The token goes in the FIRST MESSAGE, never the URL — URLs are logged.
+      ws.send(JSON.stringify({ t: 'auth', token }));
+    };
+    ws.onmessage = (e) => handle(String(e.data));
+    ws.onerror = () => {
+      /* onclose always follows; reconnection is handled there */
+    };
+    ws.onclose = () => {
+      socket = null;
+      authed = false;
+      scheduleReconnect();
+    };
+  } catch {
+    socket = null;
+    authed = false;
+    scheduleReconnect();
+  }
+}
+
+/** End the session's connection. Called on SIGN-OUT — the socket carries the
+ *  signed-in user's identity, and without this it would survive into the next
+ *  account's session on the same device. */
+export function disconnect(): void {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  authed = false;
+  socket?.close();
+  socket = null;
+}
+
+/** Watch a show's auctions. Returns an unsubscribe. Safe to call with the
+ *  engine unavailable: the handlers simply never fire and the caller's
+ *  Firestore listener keeps doing the job on its own. */
+export function subscribe(
+  showId: string,
+  handlers: { onState: StateHandler; onBid: BidHandler; onError: ErrorHandler }
+): () => void {
+  subs.set(showId, { showId, ...handlers });
+  if (isReady()) send({ t: 'sub', showId });
+  else connect().catch(() => {});
+
+  return () => {
+    send({ t: 'unsub', showId });
+    subs.delete(showId);
+    // The socket deliberately STAYS OPEN with no subscriptions. It belongs to
+    // the session (opened at sign-in), and closing it here meant the next
+    // room's first bid found it cold and fell back to the ~1s HTTP path.
+    // An idle authed socket costs a few bytes of ping — cheap against making
+    // the first bid the reliably slowest one.
+  };
+}
+
+/**
+ * Try to place a bid over the socket.
+ *
+ * Returns FALSE when it could not be sent, and the caller must then fall back
+ * to the HTTP path. It deliberately does not throw and does not wait for
+ * confirmation: the engine broadcasts the accepted bid to everyone including
+ * this device, and the panel is already showing it optimistically.
+ */
+export function placeBid(auctionId: string, amount: number, idem: string): boolean {
+  const sent = send({ t: 'bid', auctionId, amount, idem });
+  if (sent) inflight.set(auctionId, Date.now());
+  return sent;
+}

@@ -17,6 +17,7 @@ import {
 } from "firebase/auth";
 import type { MultiFactorError, MultiFactorResolver } from "firebase/auth";
 import { auth, getAppCheckHeader } from "./firebase";
+import { noteServerDate } from "./server-time";
 
 // =====================================================
 //                      TYPES
@@ -31,11 +32,17 @@ export interface ShowData {
   sellingFormat: string;
   brand: string;
   shippedFrom: string;
-  sellerRating: number;
+  /** Null when the show doc carries no rating. There is no reviews pipeline
+   *  yet, so most shows have none — this must never fall back to a plausible
+   *  number, which a buyer would read as a real score. */
+  sellerRating: number | null;
   tags: string[];
   isLive: boolean;
   thumbnail: string;
+  /** Store handle, e.g. "musstorw". Empty when unknown — never "Anonymous". */
   seller: string;
+  /** Store display name, e.g. "Musstorw". Empty when unknown. */
+  sellerName?: string;
   title?: string;
   thumbnail_url?: string;
   scheduled_time?: string | null;
@@ -63,10 +70,12 @@ function buildContinueUrl() {
 export function mapShowToUI(show: any): ShowData {
   const rawId = show?.id ?? show?.$id ?? show?.id;
   const d = show?.scheduled_time ? new Date(show.scheduled_time) : null;
+  // Empty, never "Anonymous" — these are real named stores, and the caller
+  // resolves or falls back to a neutral label rather than mislabelling one.
   const sellerName =
-    show?.seller?.username ??
     show?.sellerUsername ??
-    (typeof show?.seller === "string" ? show.seller : "Anonymous");
+    show?.seller?.username ??
+    (typeof show?.seller === "string" ? show.seller : "");
 
   return {
     ...show,
@@ -80,7 +89,7 @@ export function mapShowToUI(show: any): ShowData {
     sellingFormat: show?.sellingFormat ?? "Auction",
     brand: show?.brand ?? "N/A",
     shippedFrom: show?.shippedFrom ?? "N/A",
-    sellerRating: show?.sellerRating ?? 4.5,
+    sellerRating: typeof show?.sellerRating === "number" ? show.sellerRating : null,
     tags: Array.isArray(show?.tags) ? show.tags : [],
     isLive: !!(show?.isLive ?? show?.is_live),
     seller: sellerName,
@@ -118,15 +127,32 @@ export async function j<T = any>(
   needsAuth = false
 ): Promise<T> {
   const url = `${BASE}${path}`;
+  // App Check and the auth header are INDEPENDENT round trips. Awaiting them
+  // inline in the object literal ran them one after the other, so every
+  // request paid both latencies in series before the fetch even started.
+  const t0 = Date.now();
+  const [appCheck, authed] = await Promise.all([
+    getAppCheckHeader(),
+    needsAuth ? authHeaders() : Promise.resolve({} as Record<string, string>),
+  ]);
+  const tHeaders = Date.now();
   const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(await getAppCheckHeader()),
+      ...appCheck,
       ...((init?.headers as Record<string, string>) || {}),
-      ...(needsAuth ? await authHeaders() : {}),
+      ...authed,
     },
   });
+  // Free clock sync: every response carries a `Date` header, so the auction
+  // countdown can run on the server's clock instead of the device's.
+  noteServerDate(res.headers.get("date"), Date.now() - tHeaders);
+  if (__DEV__) {
+    console.warn(
+      `[api] ${path} headers=${tHeaders - t0}ms fetch=${Date.now() - tHeaders}ms`
+    );
+  }
   await throwIfNotOk(res, url);
   return (await res.json()) as T;
 }
@@ -201,6 +227,12 @@ export async function me(): Promise<{ id: string; email: string } | null> {
 // Holds the resolver between a login() that hit a 2FA challenge and the
 // follow-up resolveMfaLogin(). Module-scoped so the UI just submits a code.
 let pendingMfaResolver: MultiFactorResolver | null = null;
+
+/** Adopt a 2FA challenge raised outside login() (e.g. Google/Apple sign-in on
+ *  an MFA-enrolled account) so resolveMfaLogin() can complete it. */
+export function adoptMfaChallenge(err: MultiFactorError) {
+  pendingMfaResolver = getMultiFactorResolver(auth, err);
+}
 
 /** Same friendly error mapping as the web app — users never see raw codes. */
 export function friendlyAuthError(err: any): string {
@@ -313,6 +345,33 @@ export async function checkUsername(
     return await res.json();
   } catch {
     return { available: false, reason: "CHECK_FAILED" };
+  }
+}
+
+/** Atomically claim a username for the signed-in user (server is authority).
+ *  Used by the post-social-signup completion step. Throws friendly errors. */
+export async function claimUsername(username: string): Promise<void> {
+  const u = auth.currentUser;
+  if (!u) throw new Error('Sign in first.');
+  const clean = username.toLowerCase().trim();
+  const token = await getIdToken(u, /*forceRefresh*/ true);
+  const r = await fetch(`${BASE}/api/profile/claim-username`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await getAppCheckHeader()),
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ username: clean }),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    if (data?.error === 'USERNAME_TAKEN')
+      throw new Error(`@${clean} was just taken. Try another.`);
+    if (data?.error === 'INVALID_FORMAT')
+      throw new Error('That username format isn’t allowed.');
+    if (data?.error === 'RESERVED') throw new Error('That username is reserved.');
+    throw new Error('Could not claim the username. Please try again.');
   }
 }
 

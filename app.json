@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "anynall-mobile",
+    "name": "Any&All",
     "slug": "anynall-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,17 +9,26 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#050A18",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Any&All uses your camera so you can broadcast your live show.",
+        "NSMicrophoneUsageDescription": "Any&All uses your microphone so buyers can hear you during your live show."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#050A18",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.anynallmobile"
+      "package": "com.anynall.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "output": "static",
@@ -30,15 +39,53 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#050A18",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#040711",
+          "image": "./assets/images/splash-transparent.png",
+          "imageWidth": 100,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#040711",
+            "image": "./assets/images/splash-transparent.png",
+            "imageWidth": 100,
+            "resizeMode": "contain"
+          }
+        }
+      ],
+      "expo-secure-store",
+      "expo-image",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf",
+            "node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf",
+            "node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf",
+            "node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf",
+            "node_modules/@expo-google-fonts/cormorant-garamond/500Medium/CormorantGaramond_500Medium.ttf",
+            "node_modules/@expo-google-fonts/cormorant-garamond/500Medium_Italic/CormorantGaramond_500Medium_Italic.ttf",
+            "node_modules/@expo-google-fonts/jetbrains-mono/500Medium/JetBrainsMono_500Medium.ttf"
+          ]
+        }
+      ],
+      "@react-native-google-signin/google-signin",
+      "expo-apple-authentication",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Any&All uses your photo library so you can choose a profile photo.",
+          "cameraPermission": "Any&All uses your camera so you can take a profile photo."
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8bc320d8-d072-435e-89b4-03153a55df86"
+      }
     }
   }
 }

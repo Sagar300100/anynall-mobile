@@ -1,4 +1,8 @@
-import { useMemo, useState } from 'react';
+// Explore — search + category filters over the full catalog. Accepts a `cat`
+// param so Home's category chips land here pre-filtered.
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -13,14 +17,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ShowCard } from '@/components/show-card';
 import { useBrandColors } from '@/components/ui/form';
-import { Spacing } from '@/constants/theme';
+import { Fonts, Spacing } from '@/constants/theme';
 import { useShows } from '@/hooks/use-shows';
 
-export default function BrowseScreen() {
+export default function ExploreScreen() {
   const c = useBrandColors();
   const { shows, refreshing, refresh } = useShows();
+  const { cat } = useLocalSearchParams<{ cat?: string }>();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(null);
+
+  // Home's category chips deep-link here.
+  useEffect(() => {
+    if (cat) setCategory(String(cat));
+  }, [cat]);
 
   const categories = useMemo(
     () =>
@@ -44,38 +54,51 @@ export default function BrowseScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={styles.searchWrap}>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search shows, sellers, categories…"
-          placeholderTextColor={c.textSecondary}
-          style={[
-            styles.search,
-            { color: c.text, backgroundColor: c.cardBackground, borderColor: c.border },
-          ]}
-          autoCapitalize="none"
-          returnKeyType="search"
-        />
+      <View style={styles.top}>
+        <View
+          style={[styles.searchBox, { backgroundColor: c.backgroundElement, borderColor: c.border }]}
+        >
+          <Ionicons name="search" size={16} color={c.textSecondary} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Shows, sellers, categories…"
+            placeholderTextColor={c.textFaint}
+            style={[styles.searchInput, { color: c.text }]}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={c.textSecondary} />
+            </Pressable>
+          )}
+        </View>
+
         {categories.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.chipRow}>
-              {categories.map((cat) => {
-                const active = category === cat;
+              {categories.map((catName) => {
+                const active = category === catName;
                 return (
                   <Pressable
-                    key={cat}
-                    onPress={() => setCategory(active ? null : cat)}
+                    key={catName}
+                    onPress={() => setCategory(active ? null : catName)}
                     style={[
                       styles.chip,
                       {
-                        backgroundColor: active ? c.primary : c.cardBackground,
+                        backgroundColor: active ? c.backgroundSelected : 'transparent',
                         borderColor: active ? c.primary : c.border,
                       },
                     ]}
                   >
-                    <Text style={{ color: active ? '#fff' : c.text, fontWeight: '600', fontSize: 13 }}>
-                      {cat}
+                    <Text
+                      style={[
+                        styles.chipText,
+                        { color: active ? c.primary : c.textSecondary },
+                      ]}
+                    >
+                      {catName}
                     </Text>
                   </Pressable>
                 );
@@ -91,6 +114,7 @@ export default function BrowseScreen() {
         numColumns={2}
         columnWrapperStyle={styles.gridRow}
         contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
           <View style={styles.gridItem}>
             <ShowCard show={item} />
@@ -98,8 +122,10 @@ export default function BrowseScreen() {
         )}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={{ color: c.textSecondary, textAlign: 'center' }}>
-              No shows match your search.
+            <Ionicons name="compass-outline" size={40} color={c.primary} />
+            <Text style={[styles.emptyTitle, { color: c.text }]}>Nothing matches</Text>
+            <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
+              Try a different search{category ? ' or clear the category filter' : ''}.
             </Text>
           </View>
         }
@@ -113,23 +139,35 @@ export default function BrowseScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  searchWrap: { padding: Spacing.three, gap: Spacing.two + Spacing.one },
-  search: {
+  top: { padding: Spacing.three, paddingBottom: Spacing.two, gap: Spacing.two + Spacing.one },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 12,
     paddingHorizontal: Spacing.three,
-    paddingVertical: 10,
-    fontSize: 16,
+    paddingVertical: 2,
   },
+  searchInput: { flex: 1, fontSize: 15.5, fontFamily: Fonts.sans, paddingVertical: 11 },
   chipRow: { flexDirection: 'row', gap: Spacing.two },
   chip: {
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: Spacing.three,
-    paddingVertical: 6,
+    paddingVertical: 7,
   },
-  listContent: { padding: Spacing.three, gap: Spacing.three },
+  chipText: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  listContent: { padding: Spacing.three, gap: Spacing.three, flexGrow: 1 },
   gridRow: { gap: Spacing.three },
   gridItem: { flex: 1 },
-  empty: { paddingVertical: Spacing.six },
+  empty: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    paddingVertical: Spacing.six,
+  },
+  emptyTitle: { fontSize: 17, fontFamily: Fonts.sansSemiBold },
+  emptyBody: { fontSize: 14, fontFamily: Fonts.sans, textAlign: 'center' },
 });

@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -19,13 +20,42 @@ import {
   useBrandColors,
 } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
+import { getOrCreateDirectConversation } from '@/lib/conversations';
+import { markShowTapped } from '@/lib/stream';
+import { startJoin } from '@/lib/stream-join';
+import { useSession } from '@/lib/session';
 import { useShows } from '@/hooks/use-shows';
 
 export default function ShowDetailScreen() {
   const c = useBrandColors();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useSession();
   const { shows, loading } = useShows();
   const show = shows.find((s) => String(s.id) === String(id));
+  const [messaging, setMessaging] = useState(false);
+  const [messageErr, setMessageErr] = useState<string | null>(null);
+
+  const canMessageSeller = !!show?.ownerUid && show.ownerUid !== user?.uid;
+
+  async function messageSeller() {
+    if (!show?.ownerUid || messaging) return;
+    setMessaging(true);
+    setMessageErr(null);
+    try {
+      const conversationId = await getOrCreateDirectConversation(show.ownerUid, {
+        displayName: show.seller,
+        username: show.seller,
+      });
+      router.push({
+        pathname: '/chat/[id]',
+        params: { id: conversationId, otherUid: show.ownerUid, otherName: show.seller },
+      });
+    } catch (err: any) {
+      setMessageErr(err?.message || 'Could not open the conversation.');
+    } finally {
+      setMessaging(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -86,11 +116,31 @@ export default function ShowDetailScreen() {
           <View style={styles.sellerRow}>
             <Ionicons name="person-circle-outline" size={22} color={c.primary} />
             <Text style={[styles.seller, { color: c.text }]}>@{show.seller}</Text>
-            <Ionicons name="star" size={13} color={c.primary} style={{ marginLeft: 'auto' }} />
-            <Text style={[styles.rating, { color: c.textSecondary }]}>
-              {show.sellerRating.toFixed(1)}
-            </Text>
+            {canMessageSeller && (
+              <Pressable
+                onPress={messageSeller}
+                disabled={messaging}
+                hitSlop={6}
+                style={[styles.msgBtn, { borderColor: c.borderStrong, opacity: messaging ? 0.6 : 1 }]}
+              >
+                <Ionicons name="chatbubble-outline" size={13} color={c.primary} />
+                <Text style={[styles.msgBtnText, { color: c.text }]}>Message</Text>
+              </Pressable>
+            )}
+            {show.sellerRating !== null && (
+              <>
+                <Ionicons name="star" size={13} color={c.primary} style={{ marginLeft: 'auto' }} />
+                <Text style={[styles.rating, { color: c.textSecondary }]}>
+                  {show.sellerRating.toFixed(1)}
+                </Text>
+              </>
+            )}
           </View>
+          {!!messageErr && (
+            <Text style={{ color: c.danger, fontSize: 12, fontFamily: Fonts.sans }}>
+              {messageErr}
+            </Text>
+          )}
 
           <View
             style={[styles.infoCard, { backgroundColor: c.cardBackground, borderColor: c.border }]}
@@ -130,9 +180,13 @@ export default function ShowDetailScreen() {
           {show.isLive ? (
             <PrimaryButton
               title="Join live show"
-              onPress={() =>
-                router.push({ pathname: '/live/[id]', params: { id: String(show.id) } })
-              }
+              onPress={() => {
+                // The whole join starts at the tap and overlaps the
+                // transition; the room screen adopts it mid-flight.
+                markShowTapped(String(show.id));
+                startJoin(String(show.id));
+                router.push({ pathname: '/live/[id]', params: { id: String(show.id) } });
+              }}
             />
           ) : show.replayUrl ? (
             <PrimaryButton
@@ -188,6 +242,16 @@ const styles = StyleSheet.create({
   body: { padding: Spacing.three, gap: Spacing.three },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   seller: { fontSize: 15, fontFamily: Fonts.sansSemiBold },
+  msgBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two + 2,
+    paddingVertical: 4,
+  },
+  msgBtnText: { fontSize: 12, fontFamily: Fonts.sansMedium },
   rating: { fontSize: 13, fontFamily: Fonts.mono, marginLeft: 4 },
   infoCard: { borderWidth: 1, borderRadius: 12, padding: Spacing.three, gap: Spacing.two },
   infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

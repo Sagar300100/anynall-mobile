@@ -33,12 +33,31 @@ export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 // Auth with durable sessions: users stay signed in across app restarts until
 // they sign out or the refresh token is revoked server-side
 // (POST /api/auth/revoke-sessions) — same policy as the web app.
+//
+// Defensive init: whether Metro serves the RN or the browser build of
+// firebase/auth depends on exports-map resolution, and on the browser build
+// getReactNativePersistence is undefined. A module-eval throw here kills the
+// entire app at the splash screen, so every step degrades instead of throwing
+// (worst case: in-memory sessions — sign-in works, persistence is lost).
+function initNativeAuth() {
+  try {
+    if (typeof getReactNativePersistence === "function") {
+      return initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
+    }
+    console.warn("[firebase] getReactNativePersistence unavailable — using default persistence");
+    return initializeAuth(app, {});
+  } catch (err) {
+    console.warn("[firebase] initializeAuth failed, falling back to getAuth:", (err as any)?.message);
+    return getAuth(app);
+  }
+}
+
 export const auth =
   Platform.OS === "web"
     ? getAuth(app) // web (Expo web preview): browser persistence built in
-    : initializeAuth(app, {
-        persistence: getReactNativePersistence(AsyncStorage),
-      });
+    : initNativeAuth();
 
 export const db = getFirestore(app);
 export const storage = getStorage(app);

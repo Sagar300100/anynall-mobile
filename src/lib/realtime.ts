@@ -21,9 +21,17 @@ export interface ProductDoc {
   sold: number;
   kind?: string; // auction | buy-it-now | giveaway
   shippingFee?: number; // paise, 0 = seller absorbs
-  auctionConfig?: { startPrice: number; bidStep: number; durationSeconds: number } | null;
+  auctionConfig?: {
+    startPrice: number;
+    bidStep: number;
+    durationSeconds: number;
+    /** Anti-sniping off: the clock is hard, last bid in wins. */
+    suddenDeath?: boolean;
+  } | null;
   pinned?: boolean;
   thumbnail_url?: string;
+  /** new | pre-owned | mint | near-mint | good | fair | poor */
+  condition?: string;
   showId?: string | null;
 }
 

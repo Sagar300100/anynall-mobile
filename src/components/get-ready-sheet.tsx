@@ -23,6 +23,7 @@ import {
   useBrandColors,
 } from '@/components/ui/form';
 import { IN_STATES } from '@/constants/in-states';
+import { useSession } from '@/lib/session';
 import { Fonts, Spacing } from '@/constants/theme';
 import {
   saveCommerceProfile,
@@ -38,6 +39,10 @@ interface Props {
 }
 
 export function GetReadySheet({ visible, profile, onReady, onClose }: Props) {
+  // Recipient name is the account's, and not editable here — a delivery name
+  // that disagrees with the account is a dispute waiting to happen.
+  const { user } = useSession();
+  const accountName = (user?.displayName || '').trim();
   const c = useBrandColors();
   const [a, setA] = useState<Partial<ShippingAddress>>({});
   const [method, setMethod] = useState<'upi' | 'card' | ''>('');
@@ -48,11 +53,12 @@ export function GetReadySheet({ visible, profile, onReady, onClose }: Props) {
 
   useEffect(() => {
     if (!visible) return;
-    setA(profile?.savedAddress || {});
+    // Recipient name always tracks the account.
+    setA({ ...(profile?.savedAddress || {}), ...(accountName ? { name: accountName } : {}) });
     setMethod(profile?.preferredMethod || '');
     setTerms(profile?.auctionTermsAccepted || false);
     setErr(null);
-  }, [visible, profile]);
+  }, [visible, profile, accountName]);
 
   const set = (k: keyof ShippingAddress) => (v: string) =>
     setA((prev) => ({ ...prev, [k]: v }));
@@ -113,7 +119,12 @@ export function GetReadySheet({ visible, profile, onReady, onClose }: Props) {
               keyboardShouldPersistTaps="handled"
             >
               <Text style={[styles.section, { color: c.primary }]}>DELIVERY ADDRESS</Text>
-              <Field label="Full name" value={a.name || ''} onChangeText={set('name')} />
+              <Field
+                label={accountName ? 'Full name (from your account)' : 'Full name'}
+                value={a.name || ''}
+                onChangeText={set('name')}
+                editable={!accountName}
+              />
               <Field
                 label="Mobile number"
                 value={a.phone || ''}

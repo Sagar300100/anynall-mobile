@@ -22,7 +22,32 @@ export interface AuctionRecord {
   status: string;
   winnerUid?: string | null;
   paymentWindowExpiresAt?: string | null;
+  /** Anti-sniping disabled for this lot: the clock never extends, so whoever
+   *  leads at zero wins. Snapshotted onto the auction when it starts. */
+  suddenDeath?: boolean;
   version?: number;
+}
+
+/** Seller starts a lot. The server re-validates everything (ownership, stock,
+ *  "one open auction per show") and snapshots the show's verified-buyers flag
+ *  onto the auction. `suddenDeath` defaults to whatever the listing was
+ *  created with when omitted. */
+export function createAuction(p: {
+  productId: string;
+  showId: string;
+  /** Paise. */
+  startPrice: number;
+  /** Paise. Server defaults to ₹100 when omitted. */
+  bidStep?: number;
+  /** 15–900, clamped server-side. */
+  durationSeconds?: number;
+  suddenDeath?: boolean;
+}) {
+  return j<{ id: string; endsAt: string; status: string; suddenDeath: boolean }>(
+    '/api/auctions',
+    { method: 'POST', body: JSON.stringify(p) },
+    true
+  );
 }
 
 /** Minimum acceptable next bid, mirroring the server's transaction rule. */
@@ -99,6 +124,26 @@ export interface CommerceProfile {
   emailVerified: boolean;
 }
 
+/** May this buyer purchase from this show's seller?
+ *
+ *  A composition or eligible-unregistered seller may only deliver inside their
+ *  own State, so an out-of-State buyer can watch but not buy. The purchase
+ *  paths enforce this anyway; this is what lets the room disable the button
+ *  and explain why, instead of failing after the buyer has committed. */
+export interface BuyEligibility {
+  allowed: boolean;
+  code?: string;
+  message?: string;
+}
+
+export function canBuyFromShow(showId: string) {
+  return j<BuyEligibility>(
+    `/api/commerce/can-buy?showId=${encodeURIComponent(showId)}`,
+    undefined,
+    true
+  );
+}
+
 export function getCommerceProfile() {
   return j<CommerceProfile>('/api/commerce/profile', { method: 'GET' }, true);
 }
@@ -124,6 +169,33 @@ export function isReadyToBid(p: CommerceProfile | null): boolean {
     p.preferredMethod &&
     p.auctionTermsAccepted &&
     p.unpaidWins < p.maxUnpaidWins
+  );
+}
+
+// =====================================================
+//                     BUY NOW
+// =====================================================
+export interface BuyNowOrder {
+  orderId: string;
+  commerceOrderId: string;
+  amount: number; // paise (product price + seller's shipping fee)
+  currency: 'INR';
+  keyId: string;
+  productTitle: string;
+  customerId?: string | null;
+}
+
+/**
+ * Reserve one unit of a live-show product and create its Razorpay order.
+ * The price is read server-side from the product doc — the client never
+ * supplies an amount. 409s carry human-readable reasons (SOLD_OUT,
+ * INTERSTATE_BLOCKED, …) in the response body.
+ */
+export function createBuyNowOrder(productId: string, shipping: ShippingAddress) {
+  return j<BuyNowOrder>(
+    '/api/orders/buy-now',
+    { method: 'POST', body: JSON.stringify({ productId, shipping }) },
+    true
   );
 }
 
