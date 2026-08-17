@@ -59,3 +59,6 @@ android/.idea/
 android/*.iml
 android/app/src/main/java/inline/
 *.jsbundle
+
+# local docs (phase documentation PDFs — not part of the app)
+docs/

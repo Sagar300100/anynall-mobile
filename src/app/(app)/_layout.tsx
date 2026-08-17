@@ -137,6 +137,11 @@ export default function AppTabsLayout() {
       {/* Chat hides the bar so the composer sits on the keyboard, like DMs. */}
       <Tabs.Screen name="support-chat" options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="legal/[doc]" options={{ href: null }} />
+      <Tabs.Screen name="account/change-email" options={{ href: null }} />
+      <Tabs.Screen name="account/change-password" options={{ href: null }} />
+      <Tabs.Screen name="account/two-factor" options={{ href: null }} />
+      <Tabs.Screen name="account/sessions" options={{ href: null }} />
+      <Tabs.Screen name="account/delete" options={{ href: null }} />
     </Tabs>
   );
 }

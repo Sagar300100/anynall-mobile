@@ -1,20 +1,21 @@
 // Settings — reached from the gear on the Profile tab.
 //
-// Deliberately thin: it contains only settings that actually exist today.
-// Account email (with its real verification state) and a real password-reset
-// action that sends Firebase's reset email. No fake toggles, no placeholder
-// preferences — new sections get added here when their backends land.
+// Phase 2 of web parity turned this from a two-row stub into the account's
+// security home, mirroring the real features of the website's Account
+// Settings (2FA, revoke sessions, data export, delete account) plus the
+// email/password changes the site only stubs. Every row is a real action —
+// no fake toggles, no placeholder preferences.
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MenuGroup, MenuRow } from '@/components/account-menu';
 import { GuestPrompt } from '@/components/guest-prompt';
 import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
-import { requestPasswordReset } from '@/lib/api';
+import { exportMyData, hasPasswordProvider, isTwoFactorEnrolled } from '@/lib/account';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { useSession } from '@/lib/session';
 
@@ -22,29 +23,35 @@ export default function SettingsScreen() {
   const c = useBrandColors();
   const { user } = useSession();
   const status = useAuthStatus();
-  const [sending, setSending] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [twoFactorOn, setTwoFactorOn] = useState(false);
 
-  function confirmPasswordReset() {
-    const email = user?.email;
-    if (!email) return;
-    Alert.alert('Change password', `We’ll email a password-reset link to ${email}.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Send link',
-        onPress: async () => {
-          setSending(true);
-          try {
-            await requestPasswordReset(email);
-            Alert.alert('Email sent', 'Check your inbox for the reset link.');
-          } catch {
-            Alert.alert("Couldn't send the email", 'Please try again in a moment.');
-          } finally {
-            setSending(false);
-          }
-        },
-      },
-    ]);
+  // Re-check on every focus: the user may have just enrolled or unenrolled
+  // on the Two-factor screen and come back.
+  useFocusEffect(
+    useCallback(() => {
+      setTwoFactorOn(isTwoFactorEnrolled());
+    }, [])
+  );
+
+  async function exportData() {
+    setExporting(true);
+    try {
+      const data = await exportMyData();
+      // No file-system dependency: hand the JSON to the native share sheet,
+      // where the user picks where it goes (Drive, mail, files…).
+      await Share.share({
+        title: `anynall-my-data-${new Date().toISOString().slice(0, 10)}.json`,
+        message: JSON.stringify(data, null, 2),
+      });
+    } catch {
+      Alert.alert('Export failed', 'Could not export your data right now. Please try again.');
+    } finally {
+      setExporting(false);
+    }
   }
+
+  const passwordAccount = hasPasswordProvider();
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
@@ -88,11 +95,61 @@ export default function SettingsScreen() {
               )}
             </View>
             <MenuRow
+              icon="mail-open-outline"
+              label="Change email"
+              support={
+                passwordAccount
+                  ? 'Verify a new address before it switches over'
+                  : 'Managed by your sign-in provider'
+              }
+              onPress={() => router.push('/account/change-email')}
+            />
+            <MenuRow
               icon="key-outline"
               label="Change password"
-              support="We’ll email you a secure reset link"
-              onPress={confirmPasswordReset}
-              loading={sending}
+              support={
+                passwordAccount
+                  ? 'Update it here, or reset by email'
+                  : 'Your sign-in provider handles this'
+              }
+              onPress={() => router.push('/account/change-password')}
+            />
+          </MenuGroup>
+
+          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>SECURITY</Text>
+          <MenuGroup>
+            <MenuRow
+              icon={twoFactorOn ? 'shield-checkmark-outline' : 'shield-outline'}
+              label="Two-factor authentication"
+              support={
+                twoFactorOn
+                  ? 'On — a code is required at each sign-in'
+                  : 'Add a sign-in code from an authenticator app'
+              }
+              onPress={() => router.push('/account/two-factor')}
+            />
+            <MenuRow
+              icon="log-out-outline"
+              label="Sign out everywhere"
+              support="Revoke every other device’s session"
+              onPress={() => router.push('/account/sessions')}
+            />
+          </MenuGroup>
+
+          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>PRIVACY & DATA</Text>
+          <MenuGroup>
+            <MenuRow
+              icon="download-outline"
+              label="Export my data"
+              support="Everything we hold about you, as JSON"
+              onPress={exportData}
+              loading={exporting}
+            />
+            <MenuRow
+              icon="trash-outline"
+              label="Delete account"
+              support="Permanently erase your account and data"
+              onPress={() => router.push('/account/delete')}
             />
           </MenuGroup>
 
@@ -141,7 +198,7 @@ const styles = StyleSheet.create({
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
   topTitle: { fontSize: 19, fontFamily: Fonts.sansSemiBold },
-  scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.two },
+  scroll: { padding: Spacing.three, paddingTop: Spacing.two, paddingBottom: Spacing.five, gap: Spacing.two },
   sectionLabel: { fontSize: 11.5, fontFamily: Fonts.sansMedium, letterSpacing: 1.1, marginLeft: 4 },
   infoRow: {
     flexDirection: 'row',
