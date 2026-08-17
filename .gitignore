@@ -13,6 +13,11 @@ expo-env.d.ts
 .kotlin/
 *.orig.*
 *.jks
+*.keystore
+# Exception: the stock Android debug keystore (alias androiddebugkey, self-signed
+# CN=Android Debug). Tracked so every clone shares one debug SHA-1, which the
+# Google Sign-In Android OAuth client is registered against. Never a release key.
+!android/app/debug.keystore
 *.p8
 *.p12
 *.key
@@ -41,4 +46,16 @@ example
 
 # generated native folders
 /ios
-/android
+
+# Android: the native project is tracked so customisations survive a fresh
+# clone. Generated, machine-local and signing files stay ignored.
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/.cxx/
+android/app/.cxx/
+android/.idea/
+android/*.iml
+android/app/src/main/java/inline/
+*.jsbundle
