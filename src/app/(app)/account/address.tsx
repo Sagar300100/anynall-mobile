@@ -10,6 +10,13 @@
 // was mid-checkout inside the Get-Ready sheet; settings deserves a calm,
 // full-screen editor.
 //
+// RECIPIENT NAME IS THE BUYER'S — always. Product decision: even when the
+// buyer is ordering for someone else, the order carries the account holder's
+// own name; only the ADDRESS may change. A delivery name that disagrees with
+// the account is a dispute waiting to happen, so the name field tracks
+// user.displayName and is not editable (same rule the Get-Ready checkout
+// sheet already enforces).
+//
 // Validation mirrors functions/auctionsRouter.js validShipping() exactly:
 // name/line1/city required, phone /^[6-9]\d{9}$/, PIN /^[1-9]\d{5}$/, and a
 // GST State/UT code — the State matters beyond delivery, because same-State
@@ -40,10 +47,16 @@ import {
   type ShippingAddress,
 } from '@/lib/commerce';
 import { IN_STATES } from '@/lib/seller';
+import { useSession } from '@/lib/session';
 
 export default function AddressScreen() {
   const c = useBrandColors();
   const status = useAuthStatus();
+  // Recipient name always tracks the account — see header note. Editable only
+  // as a fallback when the account has no display name, so the server's
+  // "name required" rule can still be satisfied.
+  const { user } = useSession();
+  const accountName = (user?.displayName || '').trim();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -64,7 +77,7 @@ export default function AddressScreen() {
         const p = await getCommerceProfile();
         if (cancelled) return;
         setSaved(p.savedAddress);
-        setForm(p.savedAddress || {});
+        setForm({ ...(p.savedAddress || {}), ...(accountName ? { name: accountName } : {}) });
         setEditing(!p.savedAddress); // nothing saved → open the form directly
         setLoadError(false);
       } catch {
@@ -76,7 +89,7 @@ export default function AddressScreen() {
     return () => {
       cancelled = true;
     };
-  }, [status]);
+  }, [status, accountName]);
 
   const set = (k: keyof ShippingAddress) => (v: string) => {
     setForm((prev) => ({ ...prev, [k]: v }));
@@ -84,9 +97,10 @@ export default function AddressScreen() {
 
   async function submit() {
     // Same order and same rules as the server's validShipping().
+    const name = accountName || (form.name || '').trim();
     const phone = String(form.phone || '').replace(/\D/g, '');
     const pincode = String(form.pincode || '').trim();
-    if (!form.name?.trim() || !form.line1?.trim() || !form.city?.trim()) {
+    if (!name || !form.line1?.trim() || !form.city?.trim()) {
       setError('Name, address and city are required.');
       return;
     }
@@ -104,7 +118,7 @@ export default function AddressScreen() {
     }
 
     const savedAddress: ShippingAddress = {
-      name: form.name.trim(),
+      name,
       phone,
       line1: form.line1.trim(),
       line2: (form.line2 || '').trim(),
@@ -202,7 +216,7 @@ export default function AddressScreen() {
             title="Edit address"
             variant="ghost"
             onPress={() => {
-              setForm(saved);
+              setForm({ ...saved, ...(accountName ? { name: accountName } : {}) });
               setJustSaved(false);
               setEditing(true);
             }}
@@ -220,12 +234,19 @@ export default function AddressScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <Field
-              label="Full name"
-              value={form.name || ''}
+              label={accountName ? 'Recipient (from your account)' : 'Recipient name'}
+              value={accountName || form.name || ''}
               onChangeText={set('name')}
+              editable={!accountName}
               autoComplete="name"
               textContentType="name"
             />
+            {!!accountName && (
+              <Text style={[styles.note, styles.nameNote, { color: c.textFaint }]}>
+                Orders are always in your name — even when buying for someone else, only the
+                delivery address changes.
+              </Text>
+            )}
             <Field
               label="Mobile number"
               value={form.phone || ''}
@@ -304,6 +325,7 @@ const styles = StyleSheet.create({
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.three, paddingBottom: Spacing.six },
   body: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 21 },
   note: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  nameNote: { marginTop: -Spacing.two },
 
   okBox: {
     flexDirection: 'row',
