@@ -10,7 +10,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MenuGroup, MenuRow } from '@/components/account-menu';
@@ -18,6 +18,7 @@ import { GuestPrompt } from '@/components/guest-prompt';
 import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { exportMyData, hasPasswordProvider, isTwoFactorEnrolled } from '@/lib/account';
+import { getPublicProfile, setAccountPrivacy } from '@/lib/users';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { useSession } from '@/lib/session';
 
@@ -27,14 +28,40 @@ export default function SettingsScreen() {
   const status = useAuthStatus();
   const [exporting, setExporting] = useState(false);
   const [twoFactorOn, setTwoFactorOn] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [privacySaving, setPrivacySaving] = useState(false);
 
-  // Re-check on every focus: the user may have just enrolled or unenrolled
-  // on the Two-factor screen and come back.
+  // Re-check on every focus: the user may have just enrolled/unenrolled 2FA
+  // or changed privacy elsewhere and come back.
   useFocusEffect(
     useCallback(() => {
       setTwoFactorOn(isTwoFactorEnrolled());
-    }, [])
+      const uid = user?.uid;
+      if (!uid) return;
+      let cancelled = false;
+      getPublicProfile(uid).then((p) => {
+        if (!cancelled && p) setIsPrivate(p.isPrivate);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [user?.uid])
   );
+
+  async function togglePrivacy(next: boolean) {
+    const previous = isPrivate;
+    setIsPrivate(next); // optimistic
+    setPrivacySaving(true);
+    try {
+      await setAccountPrivacy(next);
+    } catch {
+      // Never claim a state the server didn't accept.
+      setIsPrivate(previous);
+      Alert.alert('Couldn’t update privacy', 'Please check your connection and try again.');
+    } finally {
+      setPrivacySaving(false);
+    }
+  }
 
   async function exportData() {
     setExporting(true);
@@ -155,6 +182,32 @@ export default function SettingsScreen() {
 
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>PRIVACY & DATA</Text>
           <MenuGroup>
+            {/* Instagram-style privacy on publicProfiles/{uid} — new followers
+                need approval once this is on. Same toggle as the website. */}
+            <View style={styles.switchRow}>
+              <Ionicons name="lock-closed-outline" size={22} color={c.primary} />
+              <View style={styles.infoText}>
+                <Text style={[styles.infoLabel, { color: c.text }]}>Private account</Text>
+                <Text style={[styles.infoValue, { color: c.textSecondary }]}>
+                  New followers must be approved by you
+                </Text>
+              </View>
+              <Switch
+                value={isPrivate}
+                onValueChange={togglePrivacy}
+                disabled={privacySaving}
+                accessibilityLabel="Private account"
+                accessibilityState={{ checked: isPrivate, disabled: privacySaving }}
+                trackColor={{ false: 'rgba(120,150,210,0.3)', true: '#2E6BFF' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+            <MenuRow
+              icon="person-add-outline"
+              label="Follow requests"
+              support="Approve or decline people waiting to follow you"
+              onPress={() => router.push('/account/follow-requests')}
+            />
             <MenuRow
               icon="download-outline"
               label="Export my data"
@@ -229,6 +282,14 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 15, fontFamily: Fonts.sansSemiBold },
   infoValue: { fontSize: 12.5, fontFamily: Fonts.sans },
   infoNote: { fontSize: 11, fontFamily: Fonts.sans, marginTop: 1 },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 11,
+    minHeight: 56,
+  },
   badge: {
     borderWidth: 1,
     borderRadius: 999,

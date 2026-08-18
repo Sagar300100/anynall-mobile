@@ -227,6 +227,12 @@ export default function ProfileScreen() {
             onPress={() => router.push('/account/payments')}
           />
           <CardRow
+            icon="gift-outline"
+            label="Refer friends"
+            support="Share your invite link, earn a bonus"
+            onPress={() => router.push('/account/referral')}
+          />
+          <CardRow
             icon="help-circle-outline"
             label="Help & support"
             support="FAQs, assistant, contact and support tickets"

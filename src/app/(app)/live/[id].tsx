@@ -460,16 +460,40 @@ export default function LiveRoomScreen() {
       <SafeAreaView style={styles.content} edges={['top', 'bottom']}>
         {/* ── Header ─────────────────────────────────────────────────── */}
         <View style={styles.header}>
-          <View style={styles.avatar}>
+          {/* Avatar + name open the seller's public profile — the uid rides
+              along so the profile screen skips the username lookup. */}
+          <Pressable
+            onPress={() =>
+              sellerUid &&
+              router.push({
+                pathname: '/user/[username]',
+                params: { username: sellerHandle, uid: sellerUid },
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`View ${sellerHandle}'s profile`}
+            hitSlop={4}
+            style={({ pressed }) => [styles.avatar, pressed && { opacity: 0.7 }]}
+          >
             {show?.thumbnail ? (
               <Image source={{ uri: show.thumbnail }} style={styles.avatarImg} contentFit="cover" />
             ) : (
               <Text style={styles.avatarText}>{sellerHandle.slice(0, 1).toUpperCase()}</Text>
             )}
-          </View>
+          </Pressable>
 
           <View style={styles.headerText}>
-            <Text numberOfLines={1} style={styles.sellerName}>
+            <Text
+              numberOfLines={1}
+              style={styles.sellerName}
+              onPress={() =>
+                sellerUid &&
+                router.push({
+                  pathname: '/user/[username]',
+                  params: { username: sellerHandle, uid: sellerUid },
+                })
+              }
+            >
               {sellerHandle}
             </Text>
 

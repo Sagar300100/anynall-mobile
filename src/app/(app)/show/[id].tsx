@@ -114,8 +114,22 @@ export default function ShowDetailScreen() {
           <DisplayText size={30}>{show.name}</DisplayText>
 
           <View style={styles.sellerRow}>
-            <Ionicons name="person-circle-outline" size={22} color={c.primary} />
-            <Text style={[styles.seller, { color: c.text }]}>@{show.seller}</Text>
+            <Pressable
+              onPress={() =>
+                show.ownerUid &&
+                router.push({
+                  pathname: '/user/[username]',
+                  params: { username: show.seller, uid: show.ownerUid },
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`View @${show.seller}'s profile`}
+              hitSlop={6}
+              style={({ pressed }) => [styles.sellerLink, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="person-circle-outline" size={22} color={c.primary} />
+              <Text style={[styles.seller, { color: c.text }]}>@{show.seller}</Text>
+            </Pressable>
             {canMessageSeller && (
               <Pressable
                 onPress={messageSeller}
@@ -241,6 +255,7 @@ const styles = StyleSheet.create({
   liveText: { color: '#fff', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1.5 },
   body: { padding: Spacing.three, gap: Spacing.three },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  sellerLink: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   seller: { fontSize: 15, fontFamily: Fonts.sansSemiBold },
   msgBtn: {
     flexDirection: 'row',

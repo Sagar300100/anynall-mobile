@@ -1,0 +1,140 @@
+// src/lib/users.ts — mobile port of the website's src/services/users.ts:
+// public, searchable user profiles.
+//
+// IMPORTANT: these live in `publicProfiles/{uid}`, NOT `users/{uid}`.
+// `users/{uid}` is owner-read-only + server-write-only because it holds
+// KYC/PII (Aadhaar/PAN status, encrypted bank ciphertext, isSeller…). Making
+// it public-read — as a generic social schema would — would leak PII.
+// `publicProfiles` contains ONLY non-sensitive social fields and is safe to
+// expose for profiles/follows/DM. Same schema as the web client, so a profile
+// published from either surface renders on both.
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+
+import { auth, db } from './firebase';
+
+export interface PublicProfile {
+  uid: string;
+  displayName: string;
+  username: string;
+  usernameLower: string;
+  photoURL: string;
+  bio: string;
+  /** Instagram-style privacy: private accounts require a follow request. */
+  isPrivate: boolean;
+  /** Mirrored from users/{uid} — drives the seller vs buyer profile layout. */
+  isSeller: boolean;
+  /** Interest categories (mirrored on save) — shown in About. */
+  interests: string[];
+  /** Account creation time in millis (for "Joined July 2026"). */
+  createdAtMs?: number;
+}
+
+function toPublicProfile(uid: string, d: any): PublicProfile {
+  return {
+    uid,
+    displayName: d?.displayName || d?.username || 'User',
+    username: d?.username || '',
+    usernameLower: d?.usernameLower || '',
+    photoURL: d?.photoURL || '',
+    bio: d?.bio || '',
+    isPrivate: d?.isPrivate === true,
+    isSeller: d?.isSeller === true,
+    interests: Array.isArray(d?.interests)
+      ? d.interests.filter((x: any) => typeof x === 'string')
+      : [],
+    createdAtMs: d?.createdAt?.toMillis?.() ?? undefined,
+  };
+}
+
+/**
+ * Ensure the signed-in user has a public profile (publicProfiles/{uid}).
+ * Idempotent — called on every sign-in (see session.tsx), exactly as the web
+ * app does from App.tsx. Without this, a mobile-first user would be invisible
+ * to profile views, follows and DM search on both clients.
+ */
+export async function ensureUserProfile(): Promise<void> {
+  const u = auth.currentUser;
+  if (!u) return;
+
+  let username = '';
+  let bio = '';
+  let isSeller = false;
+  let interests: string[] = [];
+  try {
+    const snap = await getDoc(doc(db, 'users', u.uid)); // owner can read own
+    if (snap.exists()) {
+      const d = snap.data() as any;
+      username = d.username || '';
+      bio = d?.profile?.bio || '';
+      isSeller = d.isSeller === true;
+      if (Array.isArray(d.interests))
+        interests = d.interests.filter((x: any) => typeof x === 'string');
+    }
+  } catch {
+    /* owner read blocked — publish from auth data only */
+  }
+
+  const displayName = (
+    u.displayName ||
+    username ||
+    (u.email ? u.email.split('@')[0] : 'User')
+  ).trim();
+  const ref = doc(db, 'publicProfiles', u.uid);
+  const existing = await getDoc(ref).catch(() => null);
+
+  const payload: any = {
+    uid: u.uid,
+    displayName,
+    displayNameLower: displayName.toLowerCase(),
+    username,
+    usernameLower: username.toLowerCase(),
+    photoURL: u.photoURL || '',
+    bio,
+    // Mirrored so OTHER users' clients can render the right profile layout
+    // (users/{uid} itself is owner-read-only).
+    isSeller,
+    interests,
+    updatedAt: serverTimestamp(),
+  };
+  if (!existing || !existing.exists()) payload.createdAt = serverTimestamp();
+
+  try {
+    await setDoc(ref, payload, { merge: true });
+  } catch {
+    /* non-fatal — retried on next sign-in */
+  }
+}
+
+/** Toggle Instagram-style privacy on the caller's own public profile. */
+export async function setAccountPrivacy(isPrivate: boolean): Promise<void> {
+  const u = auth.currentUser;
+  if (!u) throw new Error('Sign in first.');
+  await setDoc(
+    doc(db, 'publicProfiles', u.uid),
+    { uid: u.uid, isPrivate, updatedAt: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+/** Resolve a username/handle to its uid via the public usernames/{handle} map. */
+export async function lookupUidByUsername(username: string): Promise<string | null> {
+  const clean = (username || '').trim().toLowerCase();
+  if (!clean) return null;
+  try {
+    const snap = await getDoc(doc(db, 'usernames', clean));
+    if (!snap.exists()) return null;
+    const d = snap.data() as any;
+    return typeof d?.uid === 'string' ? d.uid : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getPublicProfile(uid: string): Promise<PublicProfile | null> {
+  try {
+    const snap = await getDoc(doc(db, 'publicProfiles', uid));
+    return snap.exists() ? toPublicProfile(uid, snap.data()) : null;
+  } catch {
+    return null;
+  }
+}

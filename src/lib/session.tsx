@@ -9,6 +9,7 @@ import {
   disconnect as disconnectAuctionEngine,
 } from './auction-socket';
 import { auth } from './firebase';
+import { ensureUserProfile } from './users';
 
 const AuthContext = createContext<{
   user: User | null;
@@ -39,7 +40,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // back to the ~1s HTTP path: the FIRST bid in a room, the one that
       // most needs to feel instant, was reliably the slowest. connect() is a
       // no-op without an engine URL and never throws.
-      if (u && u.emailVerified) connectAuctionEngine().catch(() => {});
+      if (u && u.emailVerified) {
+        connectAuctionEngine().catch(() => {});
+        // Publish/refresh publicProfiles/{uid} (fire-and-forget) — exactly
+        // what the website does on auth ready. Without it a mobile-first
+        // user is invisible to profiles, follows and DMs on both clients.
+        ensureUserProfile().catch(() => {});
+      }
       // Sign-out ends it: the socket carries this user's identity and must
       // not survive into whoever signs in next on this device.
       else disconnectAuctionEngine();

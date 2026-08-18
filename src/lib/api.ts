@@ -480,3 +480,16 @@ export async function resetPassword(oobCode: string, newPassword: string) {
 export async function verifyEmail(oobCode: string) {
   await applyActionCode(auth, oobCode);
 }
+
+// =====================================================
+//                     REFERRAL
+// =====================================================
+
+/** The signed-in user's referral code + share link (GET /api/profile/referral).
+ *  The server lazily creates the code on first read, so this never 404s.
+ *  `link` is built server-side from REFERRAL_BASE — prefer it over deriving
+ *  the URL client-side. There is no invite-tracking backend yet, so any
+ *  counters shown must be genuine zeros, never invented numbers. */
+export async function getMyReferral(): Promise<{ code: string; link: string }> {
+  return j("/api/profile/referral", { method: "GET" }, /*needsAuth*/ true);
+}
