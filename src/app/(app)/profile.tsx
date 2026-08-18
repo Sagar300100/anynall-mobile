@@ -227,6 +227,12 @@ export default function ProfileScreen() {
             onPress={() => router.push('/account/payments')}
           />
           <CardRow
+            icon="people-outline"
+            label="Followers & following"
+            support="Your connections on Any&All"
+            onPress={() => router.push('/account/connections')}
+          />
+          <CardRow
             icon="gift-outline"
             label="Refer friends"
             support="Share your invite link, earn a bonus"

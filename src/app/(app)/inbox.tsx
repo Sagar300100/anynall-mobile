@@ -118,6 +118,12 @@ export default function InboxScreen() {
                   <Text numberOfLines={1} style={[styles.name, { color: c.text }]}>
                     {item.otherName}
                   </Text>
+                  {/* Message request awaiting MY decision. */}
+                  {item.status === 'pending' && item.requesterId === item.otherUid && (
+                    <View style={[styles.requestBadge, { borderColor: 'rgba(77,184,255,0.4)' }]}>
+                      <Text style={[styles.requestBadgeText, { color: c.primary }]}>Request</Text>
+                    </View>
+                  )}
                   <Text style={[styles.time, { color: c.textFaint }]}>
                     {timeAgo(item.lastMessageAt)}
                   </Text>
@@ -178,6 +184,13 @@ const styles = StyleSheet.create({
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   name: { flex: 1, fontSize: 15, fontFamily: Fonts.sansSemiBold },
   time: { fontSize: 11, fontFamily: Fonts.mono },
+  requestBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  requestBadgeText: { fontSize: 10, fontFamily: Fonts.sansMedium },
   preview: { fontSize: 13, fontFamily: Fonts.sans, marginTop: 2 },
   badge: {
     minWidth: 20,

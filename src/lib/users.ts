@@ -19,8 +19,6 @@ export interface PublicProfile {
   usernameLower: string;
   photoURL: string;
   bio: string;
-  /** Instagram-style privacy: private accounts require a follow request. */
-  isPrivate: boolean;
   /** Mirrored from users/{uid} — drives the seller vs buyer profile layout. */
   isSeller: boolean;
   /** Interest categories (mirrored on save) — shown in About. */
@@ -37,7 +35,6 @@ function toPublicProfile(uid: string, d: any): PublicProfile {
     usernameLower: d?.usernameLower || '',
     photoURL: d?.photoURL || '',
     bio: d?.bio || '',
-    isPrivate: d?.isPrivate === true,
     isSeller: d?.isSeller === true,
     interests: Array.isArray(d?.interests)
       ? d.interests.filter((x: any) => typeof x === 'string')
@@ -103,17 +100,6 @@ export async function ensureUserProfile(): Promise<void> {
   } catch {
     /* non-fatal — retried on next sign-in */
   }
-}
-
-/** Toggle Instagram-style privacy on the caller's own public profile. */
-export async function setAccountPrivacy(isPrivate: boolean): Promise<void> {
-  const u = auth.currentUser;
-  if (!u) throw new Error('Sign in first.');
-  await setDoc(
-    doc(db, 'publicProfiles', u.uid),
-    { uid: u.uid, isPrivate, updatedAt: serverTimestamp() },
-    { merge: true }
-  );
 }
 
 /** Resolve a username/handle to its uid via the public usernames/{handle} map. */

@@ -144,7 +144,7 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="account/address" options={{ href: null }} />
       <Tabs.Screen name="account/payments" options={{ href: null }} />
       <Tabs.Screen name="account/referral" options={{ href: null }} />
-      <Tabs.Screen name="account/follow-requests" options={{ href: null }} />
+      <Tabs.Screen name="account/connections" options={{ href: null }} />
       <Tabs.Screen name="user/[username]" options={{ href: null }} />
     </Tabs>
   );

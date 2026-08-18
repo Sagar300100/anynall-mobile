@@ -1,5 +1,10 @@
 // 1:1 message thread — conversations/{id}/messages. Marks the thread read on
 // open and on every incoming batch, mirrors the web Messages page behaviour.
+//
+// MESSAGE REQUESTS: a new conversation is a request until the recipient
+// accepts. The requester may write their opening messages; the recipient sees
+// an Accept / Decline banner instead of the composer. Declined closes the
+// thread for both (the recipient can still change their mind and accept).
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -18,10 +23,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import {
+  acceptConversation,
+  declineConversation,
   markConversationRead,
   sendThreadMessage,
+  subscribeConversation,
   subscribeThreadMessages,
   type ChatMessage,
+  type ConversationStatus,
 } from '@/lib/conversations';
 import { useSession } from '@/lib/session';
 
@@ -38,7 +47,18 @@ export default function ChatThreadScreen() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // null while the conversation doc is loading — the composer stays hidden
+  // until we know the request state, so a gated thread never flashes open.
+  const [conv, setConv] = useState<{ status: ConversationStatus; requesterId: string } | null>(
+    null
+  );
+  const [deciding, setDeciding] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    return subscribeConversation(String(id), setConv);
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
@@ -53,6 +73,27 @@ export default function ChatThreadScreen() {
     );
     return off;
   }, [id]);
+
+  const iAmRequester = !!conv && (!conv.requesterId || conv.requesterId === user?.uid);
+  const pendingForMe = !!conv && conv.status === 'pending' && !iAmRequester;
+  const declined = conv?.status === 'declined';
+  // Composer: accepted chats always; pending only for the requester (their
+  // messages are the request). Hidden entirely while the doc loads.
+  const canWrite =
+    !!conv && (conv.status === 'accepted' || (conv.status === 'pending' && iAmRequester));
+
+  async function decide(accept: boolean) {
+    if (deciding || !id) return;
+    setDeciding(true);
+    try {
+      if (accept) await acceptConversation(String(id));
+      else await declineConversation(String(id));
+    } catch {
+      setError("Couldn't update the request. Try again.");
+    } finally {
+      setDeciding(false);
+    }
+  }
 
   async function handleSend() {
     const text = draft.trim();
@@ -127,7 +168,79 @@ export default function ChatThreadScreen() {
           </View>
         )}
 
+        {/* ── Message-request states ── */}
+        {pendingForMe && (
+          <View style={[styles.requestBar, { backgroundColor: c.backgroundElement, borderColor: c.borderStrong }]}>
+            <Text style={[styles.requestTitle, { color: c.text }]}>
+              {otherName || 'This person'} wants to message you
+            </Text>
+            <Text style={[styles.requestBody, { color: c.textSecondary }]}>
+              Accept to start chatting — they can’t send you more messages until you do.
+            </Text>
+            <View style={styles.requestActions}>
+              <Pressable
+                onPress={() => decide(true)}
+                disabled={deciding}
+                accessibilityRole="button"
+                accessibilityLabel="Accept message request"
+                style={({ pressed }) => [
+                  styles.requestBtn,
+                  { backgroundColor: c.cta, opacity: pressed || deciding ? 0.75 : 1 },
+                ]}
+              >
+                <Text style={[styles.requestBtnText, { color: c.ctaText }]}>Accept</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => decide(false)}
+                disabled={deciding}
+                accessibilityRole="button"
+                accessibilityLabel="Decline message request"
+                style={({ pressed }) => [
+                  styles.requestBtn,
+                  styles.requestGhost,
+                  { borderColor: c.border, opacity: pressed || deciding ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.requestBtnText, { color: c.textSecondary }]}>Decline</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {declined && (
+          <View style={[styles.requestBar, { backgroundColor: c.backgroundElement, borderColor: c.border }]}>
+            <Text style={[styles.requestBody, { color: c.textSecondary }]}>
+              {iAmRequester
+                ? "This person hasn't accepted your message request."
+                : 'You declined this request. You can still accept it to start chatting.'}
+            </Text>
+            {!iAmRequester && (
+              <View style={styles.requestActions}>
+                <Pressable
+                  onPress={() => decide(true)}
+                  disabled={deciding}
+                  accessibilityRole="button"
+                  accessibilityLabel="Accept message request"
+                  style={({ pressed }) => [
+                    styles.requestBtn,
+                    { backgroundColor: c.cta, opacity: pressed || deciding ? 0.75 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.requestBtnText, { color: c.ctaText }]}>Accept</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
+
+        {canWrite && conv?.status === 'pending' && (
+          <Text style={[styles.pendingNote, { color: c.textFaint }]}>
+            Message request sent — they can reply once they accept.
+          </Text>
+        )}
+
         {/* Composer */}
+        {canWrite && (
         <View style={[styles.composer, { borderColor: c.border, backgroundColor: c.backgroundElement }]}>
           <TextInput
             value={draft}
@@ -150,6 +263,7 @@ export default function ChatThreadScreen() {
             <Ionicons name="arrow-up" size={18} color={draft.trim() ? c.ctaText : c.textFaint} />
           </Pressable>
         </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -194,6 +308,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: Spacing.two + Spacing.one,
     paddingVertical: Spacing.one + 2,
+  },
+  requestBar: {
+    margin: Spacing.two + Spacing.one,
+    marginBottom: Spacing.one,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: Spacing.three,
+    gap: Spacing.one + 2,
+  },
+  requestTitle: { fontSize: 14.5, fontFamily: Fonts.sansSemiBold },
+  requestBody: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
+  requestActions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
+  requestBtn: {
+    borderRadius: 999,
+    paddingHorizontal: Spacing.three + Spacing.one,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  requestGhost: { backgroundColor: 'transparent', borderWidth: 1 },
+  requestBtnText: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  pendingNote: {
+    fontSize: 12,
+    fontFamily: Fonts.sans,
+    textAlign: 'center',
+    marginHorizontal: Spacing.three,
+    marginBottom: Spacing.one,
   },
   composer: {
     flexDirection: 'row',

@@ -1,14 +1,15 @@
-// Follows — mobile port of the website's src/services/follows.ts.
+// Follows — everyone can follow everyone, buyer or seller alike.
 //
 // Rows live in `follows/{followerUid}_{targetUid}` — the id shape
 // firestore.rules already expects; the rules enforce that the follower is the
-// caller. Instagram semantics on top: following a PRIVATE account creates a
-// `followRequests/{requesterUid}_{targetUid}` row the target must accept.
-// Counts come from server-side aggregation (getCountFromServer) so we never
-// do cross-user counter writes.
+// caller. PRODUCT DECISION: there are no private accounts and no follow
+// requests — following always succeeds immediately (the earlier
+// Instagram-style request model was removed on review). Counts come from
+// server-side aggregation (getCountFromServer) so we never do cross-user
+// counter writes.
 //
 // The original follow()/unfollow()/isFollowing() trio is kept unchanged — the
-// live room's follow button uses it against public sellers.
+// live room's follow button uses it.
 import {
   collection,
   deleteDoc,
@@ -20,17 +21,15 @@ import {
   serverTimestamp,
   setDoc,
   where,
-  writeBatch,
 } from 'firebase/firestore';
 
 import { auth, db } from './firebase';
 import { getPublicProfile, lookupUidByUsername } from './users';
 
 const rowId = (followerUid: string, targetUid: string) => `${followerUid}_${targetUid}`;
-const requestId = (requesterUid: string, targetUid: string) => `${requesterUid}_${targetUid}`;
 
-/** Instagram-style relationship state toward a target user. */
-export type FollowStatus = 'none' | 'following' | 'requested';
+/** Relationship toward a target user. */
+export type FollowStatus = 'none' | 'following';
 
 export interface PersonRef {
   uid: string;
@@ -70,35 +69,15 @@ export async function unfollow(targetUid: string): Promise<void> {
   await deleteDoc(doc(db, 'follows', rowId(uid, targetUid)));
 }
 
-// ── Instagram semantics (profile screens) ──────────────────────────────────
+// ── Profile-screen helpers ─────────────────────────────────────────────────
 
-/**
- * Follow a user. Public target → follow immediately ("following"). PRIVATE
- * target → create a follow REQUEST the target must accept ("requested").
- * Idempotent either way.
- */
+/** Follow a user — always immediate; idempotent (re-following is a no-op). */
 export async function followUser(targetUid: string): Promise<FollowStatus> {
   const me = auth.currentUser;
   if (!me) throw new Error('Sign in to follow people.');
   if (!targetUid) throw new Error('Invalid user.');
   if (me.uid === targetUid) throw new Error("You can't follow yourself.");
 
-  const prof = await getPublicProfile(targetUid);
-  if (prof?.isPrivate) {
-    await setDoc(
-      doc(db, 'followRequests', requestId(me.uid, targetUid)),
-      {
-        requesterId: me.uid,
-        targetId: targetUid,
-        requesterName: me.displayName || '',
-        createdAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-    return 'requested';
-  }
-
-  // merge:true → idempotent; re-following is a no-op, not an error.
   await setDoc(
     doc(db, 'follows', rowId(me.uid, targetUid)),
     { followerId: me.uid, targetId: targetUid, createdAt: serverTimestamp() },
@@ -107,70 +86,9 @@ export async function followUser(targetUid: string): Promise<FollowStatus> {
   return 'following';
 }
 
-/** Has the signed-in user a still-pending request to target? */
-export async function hasRequested(targetUid: string): Promise<boolean> {
-  const me = auth.currentUser;
-  if (!me || !targetUid) return false;
-  const snap = await getDoc(doc(db, 'followRequests', requestId(me.uid, targetUid))).catch(
-    () => null
-  );
-  return !!snap?.exists();
-}
-
-/** Combined state — drives the Follow / Requested / Following button. */
+/** Current relationship — drives the Follow / Following button. */
 export async function getFollowStatus(targetUid: string): Promise<FollowStatus> {
-  if (await isFollowing(targetUid)) return 'following';
-  if (await hasRequested(targetUid)) return 'requested';
-  return 'none';
-}
-
-/** Cancel my pending request to target. Idempotent. */
-export async function cancelFollowRequest(targetUid: string): Promise<void> {
-  const me = auth.currentUser;
-  if (!me || !targetUid) return;
-  await deleteDoc(doc(db, 'followRequests', requestId(me.uid, targetUid))).catch(() => {});
-}
-
-/** Incoming follow requests (people waiting for the caller's approval). */
-export async function listIncomingRequests(): Promise<PersonRef[]> {
-  const me = auth.currentUser;
-  if (!me) return [];
-  try {
-    const snap = await getDocs(
-      query(collection(db, 'followRequests'), where('targetId', '==', me.uid))
-    );
-    const refs = snap.docs.map((d) => {
-      const x = d.data() as any;
-      return { uid: x.requesterId || '', name: x.requesterName || '', username: '' };
-    });
-    return enrichPeople(refs.filter((r) => r.uid));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Accept a request: atomically create the follows row (allowed by rules
- * because the pending request exists) and delete the request.
- */
-export async function acceptFollowRequest(requesterUid: string): Promise<void> {
-  const me = auth.currentUser;
-  if (!me || !requesterUid) return;
-  const batch = writeBatch(db);
-  batch.set(doc(db, 'follows', rowId(requesterUid, me.uid)), {
-    followerId: requesterUid,
-    targetId: me.uid,
-    createdAt: serverTimestamp(),
-  });
-  batch.delete(doc(db, 'followRequests', requestId(requesterUid, me.uid)));
-  await batch.commit();
-}
-
-/** Decline a request — just removes it. */
-export async function declineFollowRequest(requesterUid: string): Promise<void> {
-  const me = auth.currentUser;
-  if (!me || !requesterUid) return;
-  await deleteDoc(doc(db, 'followRequests', requestId(requesterUid, me.uid))).catch(() => {});
+  return (await isFollowing(targetUid)) ? 'following' : 'none';
 }
 
 /** Follower / following counts via aggregation (no stale counters). */
