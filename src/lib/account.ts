@@ -4,10 +4,11 @@
 // functions/accountRouter.js and functions/authRouter.js.
 //
 // PARITY NOTE — the website's Change Email / Change Password modals are
-// UNWIRED shells (they alert() and close). This module implements the real
-// flows through Firebase Auth instead, because the app's house rule is that
-// nothing in the UI may pretend: verifyBeforeUpdateEmail for email changes,
-// reauthenticate + updatePassword for password changes.
+// UNWIRED shells (they alert() and close). Password change is implemented
+// for real here (reauthenticate + updatePassword). Email change is
+// deliberately NOT offered anywhere: by product decision the account email
+// is PERMANENT — it is the stable identity every order, ticket and KYC
+// record hangs off.
 //
 // RECENT-AUTH MODEL — /api/account/delete and /api/auth/revoke-sessions sit
 // behind requireRecentAuth(): the caller's ID token must have been minted by
@@ -23,15 +24,12 @@ import {
   signOut,
   TotpMultiFactorGenerator,
   updatePassword,
-  verifyBeforeUpdateEmail,
 } from 'firebase/auth';
 import type { TotpSecret } from 'firebase/auth';
 
 import { friendlyAuthError, j } from './api';
 import { auth } from './firebase';
 
-// Email links land on the site's action handler, same as the auth flows.
-const CONTINUE_URL = 'https://anynall.com/auth/action';
 
 // ── Providers & re-authentication ──────────────────────────────────────────
 
@@ -91,31 +89,6 @@ export function isRecentAuthError(err: unknown): boolean {
 /** True when a Firebase error means "sign in again first". */
 export function isStaleLoginError(err: unknown): boolean {
   return (err as any)?.code === 'auth/requires-recent-login';
-}
-
-// ── Change email ───────────────────────────────────────────────────────────
-
-/**
- * Change the account email the SAFE way: after password re-auth, Firebase
- * emails a verification link to the NEW address, and the account only
- * switches once that link is opened. The old address keeps working until
- * then, so a typo can never lock the user out.
- */
-export async function changeEmail(newEmail: string, currentPassword: string): Promise<void> {
-  const u = auth.currentUser;
-  if (!u) throw new Error('You must be signed in.');
-  await reauthWithPassword(currentPassword);
-  try {
-    await verifyBeforeUpdateEmail(u, newEmail.trim(), { url: CONTINUE_URL });
-  } catch (err: any) {
-    if (err?.code === 'auth/email-already-in-use') {
-      throw new Error('An account already exists with that email.');
-    }
-    if (err?.code === 'auth/invalid-email') {
-      throw new Error('Please enter a valid email address.');
-    }
-    throw new Error(friendlyAuthError(err));
-  }
 }
 
 // ── Change password ────────────────────────────────────────────────────────

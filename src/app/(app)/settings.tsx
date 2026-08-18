@@ -2,9 +2,11 @@
 //
 // Phase 2 of web parity turned this from a two-row stub into the account's
 // security home, mirroring the real features of the website's Account
-// Settings (2FA, revoke sessions, data export, delete account) plus the
-// email/password changes the site only stubs. Every row is a real action —
-// no fake toggles, no placeholder preferences.
+// Settings (2FA, revoke sessions, data export, delete account) plus a real
+// in-app password change (the site only stubs it). The account EMAIL is
+// permanent by product decision — the row states it instead of offering a
+// change flow. Every row is a real action — no fake toggles, no placeholder
+// preferences.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -80,12 +82,21 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>ACCOUNT</Text>
           <MenuGroup>
             {/* Informational row — not a button, so no chevron and no press state. */}
-            <View style={styles.infoRow} accessible accessibilityLabel={`Email, ${user?.email ?? ''}`}>
+            <View
+              style={styles.infoRow}
+              accessible
+              accessibilityLabel={`Email, ${user?.email ?? ''}, permanent`}
+            >
               <Ionicons name="mail-outline" size={22} color={c.primary} />
               <View style={styles.infoText}>
                 <Text style={[styles.infoLabel, { color: c.text }]}>Email</Text>
                 <Text style={[styles.infoValue, { color: c.textSecondary }]} numberOfLines={1}>
                   {user?.email}
+                </Text>
+                {/* Product decision: the account email is PERMANENT — say so,
+                    rather than leaving users hunting for a change flow. */}
+                <Text style={[styles.infoNote, { color: c.textFaint }]}>
+                  Permanent — this account stays on this email
                 </Text>
               </View>
               {user?.emailVerified && (
@@ -94,16 +105,6 @@ export default function SettingsScreen() {
                 </View>
               )}
             </View>
-            <MenuRow
-              icon="mail-open-outline"
-              label="Change email"
-              support={
-                passwordAccount
-                  ? 'Verify a new address before it switches over'
-                  : 'Managed by your sign-in provider'
-              }
-              onPress={() => router.push('/account/change-email')}
-            />
             <MenuRow
               icon="key-outline"
               label="Change password"
@@ -227,6 +228,7 @@ const styles = StyleSheet.create({
   infoText: { flex: 1, gap: 1 },
   infoLabel: { fontSize: 15, fontFamily: Fonts.sansSemiBold },
   infoValue: { fontSize: 12.5, fontFamily: Fonts.sans },
+  infoNote: { fontSize: 11, fontFamily: Fonts.sans, marginTop: 1 },
   badge: {
     borderWidth: 1,
     borderRadius: 999,
