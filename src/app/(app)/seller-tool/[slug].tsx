@@ -24,7 +24,6 @@ const TOOLS: Record<string, { title: string; onWeb: boolean }> = {
   payouts: { title: 'Payouts', onWeb: true },
   tips: { title: 'Tips', onWeb: false },
   refer: { title: 'Refer Buyers, Gain Followers', onWeb: false },
-  promote: { title: 'Promote Tools', onWeb: false },
   'account-health': { title: 'Account Health', onWeb: false },
   'seller-status': { title: 'Seller Status', onWeb: false },
   rehearsal: { title: 'Rehearsal Mode', onWeb: false },

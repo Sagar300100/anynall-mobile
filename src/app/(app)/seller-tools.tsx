@@ -46,7 +46,7 @@ const SALES: Row[] = [
 
 const PROMOTIONS: Row[] = [
   { icon: 'people-outline', label: 'Refer Buyers, Gain Followers', href: '/seller-tool/refer' },
-  { icon: 'megaphone-outline', label: 'Promote Tools', href: '/seller-tool/promote' },
+  { icon: 'megaphone-outline', label: 'Promote Tools', href: '/promote-tools' },
 ];
 
 const PERFORMANCE: Row[] = [
