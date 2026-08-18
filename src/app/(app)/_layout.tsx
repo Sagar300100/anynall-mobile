@@ -128,6 +128,9 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="inventory" options={{ href: null }} />
       <Tabs.Screen name="product-new" options={{ href: null }} />
       <Tabs.Screen name="seller-tool/[slug]" options={{ href: null }} />
+      <Tabs.Screen name="seller-orders" options={{ href: null }} />
+      <Tabs.Screen name="shipping-settings" options={{ href: null }} />
+      <Tabs.Screen name="seller-analytics" options={{ href: null }} />
       <Tabs.Screen name="show-room/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="show-new" options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="welcome" options={{ href: null, tabBarStyle: { display: 'none' } }} />

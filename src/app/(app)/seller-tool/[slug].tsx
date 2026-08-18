@@ -1,10 +1,10 @@
 // Route shell for Seller Tools destinations that have no screen yet.
 //
-// The menu is specified with fifteen entries; only Inventory has a real
-// implementation today. Rather than fake fourteen working screens — or wire
-// dead rows that do nothing — each unimplemented tool navigates here and says
-// plainly that it isn't built, offering the web hub when the web genuinely
-// has it. Nothing here pretends to be functionality.
+// Inventory, Orders/Fulfilment, Shipping Settings and Seller Analytics now
+// have real screens. Rather than fake the remaining tools — or wire dead rows
+// that do nothing — each unimplemented one navigates here and says plainly
+// that it isn't built, offering the web hub when the web genuinely has it.
+// Nothing here pretends to be functionality.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
@@ -22,14 +22,10 @@ const TOOLS: Record<string, { title: string; onWeb: boolean }> = {
   shows: { title: 'Shows', onWeb: true },
   offers: { title: 'Offers', onWeb: false },
   payouts: { title: 'Payouts', onWeb: true },
-  fulfilment: { title: 'Fulfilment', onWeb: true },
-  orders: { title: 'Orders', onWeb: true },
   tips: { title: 'Tips', onWeb: false },
   refer: { title: 'Refer Buyers, Gain Followers', onWeb: false },
   promote: { title: 'Promote Tools', onWeb: false },
-  analytics: { title: 'Seller Analytics', onWeb: true },
   'account-health': { title: 'Account Health', onWeb: false },
-  shipping: { title: 'Shipping Settings', onWeb: true },
   'seller-status': { title: 'Seller Status', onWeb: false },
   rehearsal: { title: 'Rehearsal Mode', onWeb: false },
 };

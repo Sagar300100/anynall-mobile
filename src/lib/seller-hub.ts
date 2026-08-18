@@ -54,6 +54,10 @@ export interface SellingOrder {
   purchaseType: string;
   buyerName: string | null;
   destination: { city: string | null; stateCode: string | null; pincode: string | null } | null;
+  /** Paise breakdown when present: { itemSubtotal, shippingFee, total }. */
+  pricing: { itemSubtotal?: number; shippingFee?: number; total?: number } | null;
+  /** Shiprocket booking state — see lib/shipping.ts Shipment. */
+  shipment: import('./shipping').Shipment | null;
   createdAt: string | null;
   createdAtMs: number;
 }
@@ -66,6 +70,26 @@ export function getMyProducts() {
 
 export function getSellingOrders() {
   return j<{ orders: SellingOrder[] }>('/api/orders/selling', undefined, true);
+}
+
+export interface AnalyticsDashboard {
+  range: string;
+  stats: { label: string; value: string }[];
+  revenueBars: { label: string; value: number }[];
+  traffic: { label: string; value: number }[];
+  topProducts: { name: string; units: number; revenue: string }[];
+  sessions: unknown[];
+}
+
+/** The full dashboard (GET /api/analytics/dashboard). REAL data only — the
+ *  backend returns genuine zeros for sales until the payments ledger feeds
+ *  it, and the screen renders honest empty states, never fake charts. */
+export function fetchAnalyticsDashboard(range = '7d') {
+  return j<AnalyticsDashboard>(
+    `/api/analytics/dashboard?range=${encodeURIComponent(range)}`,
+    undefined,
+    true
+  );
 }
 
 /** Only `Shows created` is a real measurement today — the sales figures in

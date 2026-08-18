@@ -4,10 +4,11 @@
 // groups. Nothing added: no Help & Support, no Bank Details, no Store
 // Information, no Return/Refund settings, no Logout, no Premier Shop.
 //
-// Only Inventory has a real screen today. The other thirteen navigate to
-// /seller-tool/[slug], which states plainly that the tool isn't built rather
-// than faking one — and Vacation Mode is a real server-persisted toggle, not
-// a decorative switch.
+// Real screens: Inventory, Orders & Fulfilment (Shiprocket booking/tracking),
+// Shipping Settings (pickup address + rate quotes), and Seller Analytics.
+// The remaining rows navigate to /seller-tool/[slug], which states plainly
+// that the tool isn't built rather than faking one — and Vacation Mode is a
+// real server-persisted toggle, not a decorative switch.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -36,8 +37,10 @@ const MANAGE: Row[] = [
 
 const SALES: Row[] = [
   { icon: 'cash-outline', label: 'Payouts', href: '/seller-tool/payouts', glyph: '₹' },
-  { icon: 'car-outline', label: 'Fulfilment', href: '/seller-tool/fulfilment' },
-  { icon: 'receipt-outline', label: 'Orders', href: '/seller-tool/orders' },
+  // Fulfilment and Orders are one surface: every sold order carries its own
+  // ship/label/pickup/track workflow (mirrors the web ShipmentsPanel).
+  { icon: 'car-outline', label: 'Fulfilment', href: '/seller-orders' },
+  { icon: 'receipt-outline', label: 'Orders', href: '/seller-orders' },
   { icon: 'bulb-outline', label: 'Tips', href: '/seller-tool/tips' },
 ];
 
@@ -47,12 +50,12 @@ const PROMOTIONS: Row[] = [
 ];
 
 const PERFORMANCE: Row[] = [
-  { icon: 'bar-chart-outline', label: 'Seller Analytics', href: '/seller-tool/analytics' },
+  { icon: 'bar-chart-outline', label: 'Seller Analytics', href: '/seller-analytics' },
   { icon: 'shield-checkmark-outline', label: 'Account Health', href: '/seller-tool/account-health' },
 ];
 
 const SETTINGS: Row[] = [
-  { icon: 'car-outline', label: 'Shipping Settings', href: '/seller-tool/shipping' },
+  { icon: 'car-outline', label: 'Shipping Settings', href: '/shipping-settings' },
   { icon: 'list-outline', label: 'Seller Status', href: '/seller-tool/seller-status' },
   { icon: 'chatbox-outline', label: 'Rehearsal Mode', href: '/seller-tool/rehearsal' },
 ];
