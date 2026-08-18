@@ -142,6 +142,8 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="account/two-factor" options={{ href: null }} />
       <Tabs.Screen name="account/sessions" options={{ href: null }} />
       <Tabs.Screen name="account/delete" options={{ href: null }} />
+      <Tabs.Screen name="account/address" options={{ href: null }} />
+      <Tabs.Screen name="account/payments" options={{ href: null }} />
     </Tabs>
   );
 }

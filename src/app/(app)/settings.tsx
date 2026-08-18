@@ -116,6 +116,22 @@ export default function SettingsScreen() {
             />
           </MenuGroup>
 
+          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>SHOPPING</Text>
+          <MenuGroup>
+            <MenuRow
+              icon="location-outline"
+              label="Delivery address"
+              support="The address every checkout ships to"
+              onPress={() => router.push('/account/address')}
+            />
+            <MenuRow
+              icon="card-outline"
+              label="Payments"
+              support="Which method checkout opens on"
+              onPress={() => router.push('/account/payments')}
+            />
+          </MenuGroup>
+
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>SECURITY</Text>
           <MenuGroup>
             <MenuRow

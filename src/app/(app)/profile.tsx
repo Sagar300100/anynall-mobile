@@ -32,7 +32,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CardRow, SignOutRow } from '@/components/account-menu';
-import { GetReadySheet } from '@/components/get-ready-sheet';
 import { GuestProfileScreen } from '@/components/guest-profile';
 import { ProfileFooter } from '@/components/profile-footer';
 import { ProfilePhotoSheet } from '@/components/profile-photo-sheet';
@@ -41,7 +40,6 @@ import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { logout } from '@/lib/api';
 import { useAuthStatus } from '@/lib/auth-gate';
-import { getCommerceProfile, type CommerceProfile } from '@/lib/commerce';
 import { useSession } from '@/lib/session';
 
 /**
@@ -129,13 +127,6 @@ export default function ProfileScreen() {
   const status = useAuthStatus();
 
   const [signingOut, setSigningOut] = useState(false);
-  // 'address' and 'payment' both open the commerce sheet (it edits the saved
-  // address AND the payment preference — the only payment data we hold; cards
-  // themselves live with Razorpay). Tracking which row started the load keeps
-  // the spinner on the row that was actually tapped.
-  const [sheetLoading, setSheetLoading] = useState<'address' | 'payment' | null>(null);
-  const [deliveryOpen, setDeliveryOpen] = useState(false);
-  const [commerce, setCommerce] = useState<CommerceProfile | null>(null);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const { photoURL, uploading, takePhoto, pickFromLibrary, removePhoto } = useProfilePhoto();
 
@@ -157,19 +148,6 @@ export default function ProfileScreen() {
       Alert.alert('Sign-out failed', 'Please check your connection and try again.');
     } finally {
       setSigningOut(false);
-    }
-  }
-
-  async function openCommerceSheet(source: 'address' | 'payment') {
-    if (sheetLoading) return;
-    setSheetLoading(source);
-    try {
-      setCommerce(await getCommerceProfile());
-      setDeliveryOpen(true);
-    } catch {
-      Alert.alert("Couldn't load your details", 'Please check your connection and try again.');
-    } finally {
-      setSheetLoading(null);
     }
   }
 
@@ -238,17 +216,15 @@ export default function ProfileScreen() {
           />
           <CardRow
             icon="location-outline"
-            label="Saved addresses"
-            support="View and manage your delivery addresses"
-            onPress={() => openCommerceSheet('address')}
-            loading={sheetLoading === 'address'}
+            label="Delivery address"
+            support="The address every checkout ships to"
+            onPress={() => router.push('/account/address')}
           />
           <CardRow
             icon="card-outline"
-            label="Payment methods"
-            support="Cards and payment options"
-            onPress={() => openCommerceSheet('payment')}
-            loading={sheetLoading === 'payment'}
+            label="Payments"
+            support="Which method checkout opens on"
+            onPress={() => router.push('/account/payments')}
           />
           <CardRow
             icon="help-circle-outline"
@@ -262,13 +238,6 @@ export default function ProfileScreen() {
 
         <ProfileFooter />
       </ScrollView>
-
-      <GetReadySheet
-        visible={deliveryOpen}
-        profile={commerce}
-        onReady={() => setDeliveryOpen(false)}
-        onClose={() => setDeliveryOpen(false)}
-      />
 
       <ProfilePhotoSheet
         visible={photoSheetOpen}
