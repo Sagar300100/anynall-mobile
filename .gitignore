@@ -38,6 +38,7 @@ yarn-error.*
 # local env files
 .env
 .env*.local
+.env.example
 
 # typescript
 *.tsbuildinfo
@@ -62,3 +63,6 @@ android/app/src/main/java/inline/
 
 # local docs (phase documentation PDFs — not part of the app)
 docs/
+
+# env template stays local-only (owner preference)
+.env.example
