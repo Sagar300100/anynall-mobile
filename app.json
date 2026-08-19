@@ -94,8 +94,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "8bc320d8-d072-435e-89b4-03153a55df86"
+        "projectId": "3962a3d9-5dbc-46bb-a312-b4926b3d2b4e"
       }
-    }
+    },
+    "owner": "anynalls-team"
   }
 }
