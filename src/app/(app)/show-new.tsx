@@ -616,7 +616,12 @@ export default function ScheduleShowScreen() {
       <CategorySheet
         visible={catOpen}
         value={category}
-        onSelect={setCategory}
+        onSelect={(next) => {
+          // A subcategory belongs to its category — switching categories
+          // must never leave, say, 'Sneakers' attached to 'Home & Garden'.
+          if (next !== category) setSubcategory('');
+          setCategory(next);
+        }}
         onClose={() => setCatOpen(false)}
       />
     </SafeAreaView>

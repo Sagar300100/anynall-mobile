@@ -82,6 +82,8 @@ export default function ShowDetailScreen() {
         );
       } else if (code === 'TOO_LATE') {
         Alert.alert('Starting too soon', 'This show starts in the next few minutes — jump in from Live instead.');
+      } else if (code === 'BAD_TIME') {
+        Alert.alert('No start time yet', 'This show hasn\u2019t been given a start time, so there\u2019s nothing to remind you about.');
       } else {
         Alert.alert('Couldn\u2019t set the reminder', 'Please try again.');
       }

@@ -11,7 +11,7 @@
 // record; on a transient read failure the gate fails open rather than lock a
 // paying user out (same policy as the web hook — the next sign-in re-checks).
 import { doc, getDoc } from 'firebase/firestore';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -30,9 +30,33 @@ const POLICIES: { label: string; doc: string }[] = [
 export function PolicyGate() {
   const c = useBrandColors();
   const { user } = useSession();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A React Native Modal sits ABOVE the navigator, so pushing a legal page
+  // from inside it would render underneath the gate. While the user is off
+  // reading a policy the modal steps aside; the moment the route leaves
+  // /legal/* it comes straight back — the gate is paused, never skipped.
+  const [browsingPolicy, setBrowsingPolicy] = useState(false);
+
+  useEffect(() => {
+    if (!browsingPolicy || pathname.startsWith('/legal')) return;
+    let cancelled = false;
+    // Deferred a tick — the compiler rejects synchronous setState in effects.
+    (async () => {
+      await Promise.resolve();
+      if (!cancelled) setBrowsingPolicy(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [browsingPolicy, pathname]);
+
+  function openPolicy(docKey: string) {
+    setBrowsingPolicy(true);
+    router.push(`/legal/${docKey}` as never);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -81,7 +105,7 @@ export function PolicyGate() {
     }
   }, []);
 
-  if (!open) return null;
+  if (!open || browsingPolicy) return null;
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
@@ -99,7 +123,7 @@ export function PolicyGate() {
                 <View key={p.doc}>
                   {i > 0 && <View style={[styles.divider, { backgroundColor: c.border }]} />}
                   <Pressable
-                    onPress={() => router.push(`/legal/${p.doc}` as never)}
+                    onPress={() => openPolicy(p.doc)}
                     accessibilityRole="link"
                     accessibilityLabel={`Read the ${p.label}`}
                     style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.65 }]}
