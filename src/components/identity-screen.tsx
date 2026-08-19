@@ -174,6 +174,9 @@ export function IdentityScreen({
       const { sessionId: sid, authUrl } = await initDigiLocker();
       sessionId.current = sid;
       await AsyncStorage.setItem(SESSION_KEY, sid);
+      // The landing route uses this to return to the seller wizard (the
+      // buyer Verified-identity screen stamps 'buyer').
+      await AsyncStorage.setItem('anynall:digilocker-origin', 'seller');
       setHasSession(true);
       setPhase('opening');
       // Custom Tab / SFSafariViewController — never an embedded WebView, so

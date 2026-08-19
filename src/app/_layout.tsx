@@ -18,6 +18,7 @@ import { LogBox, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { SplashGate } from '@/components/splash-gate';
 import { Colors } from '@/constants/theme';
+import { PolicyGate } from '@/components/policy-gate';
 import { SessionProvider, useSession } from '@/lib/session';
 
 SplashScreen.preventAutoHideAsync();
@@ -165,6 +166,10 @@ function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
   return (
     <>
       <AppStack />
+      {/* Mandatory policy acceptance — renders only for signed-in users who
+          haven't accepted Terms/Privacy/Refund yet. Above the stack, below
+          the splash, so it can never flash mid-boot. */}
+      <PolicyGate />
       <SplashGate ready={ready} />
     </>
   );

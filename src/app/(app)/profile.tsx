@@ -227,6 +227,12 @@ export default function ProfileScreen() {
             onPress={() => router.push('/account/payments')}
           />
           <CardRow
+            icon="create-outline"
+            label="Edit profile"
+            support="Your display name and bio"
+            onPress={() => router.push('/account/edit-profile')}
+          />
+          <CardRow
             icon="people-outline"
             label="Followers & following"
             support="Your connections on Any&All"

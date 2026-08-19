@@ -106,6 +106,12 @@ export default function SettingsScreen() {
               )}
             </View>
             <MenuRow
+              icon="finger-print-outline"
+              label="Verified buyer status"
+              support="Verify your identity with Aadhaar via DigiLocker"
+              onPress={() => router.push('/account/verify-identity')}
+            />
+            <MenuRow
               icon="key-outline"
               label="Change password"
               support={

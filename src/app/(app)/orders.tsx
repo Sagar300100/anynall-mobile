@@ -91,8 +91,15 @@ export default function OrdersScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <View
-              style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+            <Pressable
+              onPress={() => router.push({ pathname: '/order/[id]', params: { id: item.id } })}
+              accessibilityRole="button"
+              accessibilityLabel={`Order details for ${item.productTitle || 'order'}`}
+              style={({ pressed }) => [
+                styles.card,
+                { backgroundColor: c.cardBackground, borderColor: c.border },
+                pressed && { opacity: 0.8 },
+              ]}
             >
               <View style={styles.cardTop}>
                 <Text numberOfLines={2} style={[styles.title, { color: c.text }]}>
@@ -123,9 +130,10 @@ export default function OrdersScreen() {
                     {item.shipment.courierName || 'Courier'} · AWB {item.shipment.awbCode}
                     {item.shipment.status ? ` · ${item.shipment.status}` : ''}
                   </Text>
+                  <Ionicons name="chevron-forward" size={14} color={c.textFaint} />
                 </View>
               )}
-            </View>
+            </Pressable>
           )}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={c.primary} />

@@ -14,6 +14,9 @@ import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 
 const SESSION_KEY = 'anynall:digilocker-session';
+// 'seller' (wizard) or 'buyer' (Verified-buyer screen) — set by whichever
+// journey opened DigiLocker, so this landing route returns to the right one.
+const ORIGIN_KEY = 'anynall:digilocker-origin';
 
 export default function DigiLockerComplete() {
   const c = useBrandColors();
@@ -24,6 +27,11 @@ export default function DigiLockerComplete() {
       // Keep whichever id we have: the one DigiLocker echoed back, or the one
       // stored when the journey started.
       if (sessionId) await AsyncStorage.setItem(SESSION_KEY, String(sessionId));
+      const origin = await AsyncStorage.getItem(ORIGIN_KEY);
+      if (origin === 'buyer') {
+        router.replace('/account/verify-identity');
+        return;
+      }
       // `resume` skips the Seller Hub intro — the seller is mid-application,
       // not deciding whether to start one.
       router.replace({ pathname: '/sell', params: { resume: '1' } });

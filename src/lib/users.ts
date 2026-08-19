@@ -8,7 +8,19 @@
 // `publicProfiles` contains ONLY non-sensitive social fields and is safe to
 // expose for profiles/follows/DM. Same schema as the web client, so a profile
 // published from either surface renders on both.
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  endAt,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  startAt,
+} from 'firebase/firestore';
 
 import { auth, db } from './firebase';
 
@@ -123,4 +135,37 @@ export async function getPublicProfile(uid: string): Promise<PublicProfile | nul
   } catch {
     return null;
   }
+}
+
+/**
+ * Search users by username (prefix) and, best-effort, displayName (prefix) —
+ * the same publicProfiles queries the website's Messages search runs.
+ * Excludes the current user; requires >= 2 chars; de-duplicated.
+ */
+export async function searchUsers(qStr: string, max = 12): Promise<PublicProfile[]> {
+  // Strip a leading "@" — people type "@name", handles are stored without it.
+  const term = qStr.trim().toLowerCase().replace(/^@+/, '');
+  if (term.length < 2) return [];
+  const me = auth.currentUser?.uid;
+  const col = collection(db, 'publicProfiles');
+  const out = new Map<string, PublicProfile>();
+
+  const run = async (field: 'usernameLower' | 'displayNameLower') => {
+    try {
+      const snap = await getDocs(
+        query(col, orderBy(field), startAt(term), endAt(term + ''), limit(max))
+      );
+      snap.forEach((s) => {
+        if (s.id === me) return; // never show the current user
+        if (!out.has(s.id)) out.set(s.id, toPublicProfile(s.id, s.data()));
+      });
+    } catch {
+      /* index building / no results — ignore */
+    }
+  };
+
+  await run('usernameLower');
+  if (out.size < max) await run('displayNameLower');
+
+  return Array.from(out.values()).slice(0, max);
 }

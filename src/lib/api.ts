@@ -493,3 +493,39 @@ export async function verifyEmail(oobCode: string) {
 export async function getMyReferral(): Promise<{ code: string; link: string }> {
   return j("/api/profile/referral", { method: "GET" }, /*needsAuth*/ true);
 }
+
+// =====================================================
+//                 POLICY ACCEPTANCE
+// =====================================================
+
+/** Record Terms + Privacy + Refund acceptance (+ the 18+ confirmation) for
+ *  the signed-in user (POST /api/profile/policy-acceptance). Written
+ *  server-side — users/{uid} stays client-write-locked, so acceptance can
+ *  only ever be stamped on the caller's own document. */
+export async function acceptPolicies(): Promise<void> {
+  await j("/api/profile/policy-acceptance", { method: "POST", body: JSON.stringify({}) }, true);
+}
+
+// =====================================================
+//                 PROFILE (display fields)
+// =====================================================
+
+export interface MyProfile {
+  username: string;
+  handle: string;
+  bio: string;
+  avatar: string;
+  referralCode: string;
+}
+
+/** The caller's display profile (GET /api/profile — lazily seeded). */
+export async function getMyProfile(): Promise<MyProfile> {
+  return j("/api/profile", { method: "GET" }, true);
+}
+
+/** Update display name + bio (PUT /api/profile). The username handle is
+ *  deliberately immutable here — renaming requires the atomic
+ *  /claim-username reservation. Server truncates: handle 60, bio 280. */
+export async function updateMyProfile(p: { handle: string; bio?: string }): Promise<MyProfile> {
+  return j("/api/profile", { method: "PUT", body: JSON.stringify(p) }, true);
+}

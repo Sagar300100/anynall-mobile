@@ -51,6 +51,21 @@ export default function InboxScreen() {
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
       <View style={styles.header}>
         <DisplayText size={28}>Messages</DisplayText>
+        <View style={styles.headerSpacer} />
+        {/* People search — find someone to message (audit: the app had no way
+            to find a person; profiles were only reachable from shows/chats). */}
+        <Pressable
+          onPress={() => router.push('/people-search')}
+          accessibilityRole="button"
+          accessibilityLabel="Find people"
+          hitSlop={8}
+          style={({ pressed }) => [
+            styles.searchBtn,
+            { borderColor: c.border, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Ionicons name="search-outline" size={18} color={c.textSecondary} />
+        </Pressable>
       </View>
 
       {status === 'loading' ? (
@@ -154,7 +169,21 @@ export default function InboxScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  header: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.three },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+  },
+  headerSpacer: { flex: 1 },
+  searchBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   center: {
     flex: 1,
     alignItems: 'center',
