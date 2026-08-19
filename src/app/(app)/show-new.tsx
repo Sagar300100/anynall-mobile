@@ -11,9 +11,10 @@
 // server endpoint for this. firestore.rules is what enforces that only an
 // approved seller (isSeller === true, ownerUid === auth.uid) can write one.
 //
-// Rows for things this app can't do yet — moderators, recurrence, video
-// preview, promotion — are present because the approved design calls for
-// them, but each is visibly disabled and labelled rather than faked.
+// Subcategory, brand and tags are LIVE discovery fields (same names the web
+// scheduler writes). Rows for things this app can't do yet — moderators,
+// recurrence, video preview (storage rules have no upload path for preview
+// videos), promotion — stay visibly disabled and labelled rather than faked.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -39,6 +40,7 @@ import { StatePicker } from '@/components/state-picker';
 import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { CategorySheet } from '@/components/category-sheet';
+import { CATEGORY_GROUPS } from '@/lib/category-tree';
 import { SELLING_FORMATS, type SellingFormat } from '@/lib/category-tree';
 import { storage } from '@/lib/firebase';
 import { createShow, getShowEditable, updateShow, type Discoverability } from '@/lib/shows';
@@ -115,6 +117,9 @@ export default function ScheduleShowScreen() {
   const [slots, setSlots] = useState<ReturnType<typeof buildSlots> | null>(null);
   const [category, setCategory] = useState('');
   const [catOpen, setCatOpen] = useState(false);
+  const [subcategory, setSubcategory] = useState('');
+  const [brand, setBrand] = useState('');
+  const [tagsText, setTagsText] = useState('');
   const [format, setFormat] = useState<SellingFormat>('buy-it-now');
   const [language, setLanguage] = useState('English');
   const [discoverability, setDiscoverability] = useState<Discoverability>('public');
@@ -149,6 +154,9 @@ export default function ScheduleShowScreen() {
       }
       setTitle(show.title);
       setCategory(show.category);
+      setSubcategory(show.subcategory);
+      setBrand(show.brand);
+      setTagsText(show.tags.join(', '));
       setFormat(show.sellingFormat);
       setLanguage(show.language);
       setDiscoverability(show.discoverability);
@@ -273,6 +281,16 @@ export default function ScheduleShowScreen() {
         ),
       ],
       thumbnailUrl: thumb,
+      subcategory: subcategory.trim(),
+      brand: brand.trim(),
+      tags: [
+        ...new Set(
+          tagsText
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+        ),
+      ].slice(0, 10),
     };
     try {
       if (editId) {
@@ -428,6 +446,40 @@ export default function ScheduleShowScreen() {
             </Text>
             <Ionicons name="chevron-down" size={17} color={c.textSecondary} />
           </Pressable>
+
+          {/* Discovery details — live fields, same names the web scheduler
+              writes; buyers filter on them in Browse. All optional. */}
+          {!!category && (
+            <StatePicker
+              label="Subcategory"
+              value={subcategory}
+              onChange={setSubcategory}
+              options={(
+                CATEGORY_GROUPS.find((g) => g.name === category)?.subcategories ?? []
+              ).map((v) => ({ code: v, name: v }))}
+              placeholder="Choose a subcategory (optional)"
+            />
+          )}
+          <Field label="Brand (optional)">
+            <TextInput
+              value={brand}
+              onChangeText={setBrand}
+              placeholder="e.g. Nike, Funko, Titan"
+              placeholderTextColor={c.textFaint}
+              accessibilityLabel="Brand"
+              style={[styles.input, { color: c.text }]}
+            />
+          </Field>
+          <Field label="Tags (optional)">
+            <TextInput
+              value={tagsText}
+              onChangeText={setTagsText}
+              placeholder="Separate tags with commas, e.g. vintage, sealed"
+              placeholderTextColor={c.textFaint}
+              accessibilityLabel="Tags, comma separated"
+              style={[styles.input, { color: c.text }]}
+            />
+          </Field>
 
           {/* Only meaningful once a category is picked, mirroring the flow in
               the approved reference. */}

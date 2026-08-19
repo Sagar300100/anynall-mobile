@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 
+import { AgentHelperSheet } from '@/components/agent-helper-sheet';
 import { AgreementScreen } from '@/components/agreement-screen';
 import { ReviewScreen } from '@/components/review-screen';
 import { BankDetailsScreen } from '@/components/bank-details-screen';
@@ -95,6 +96,7 @@ export function SellerWizard({
 }) {
   const c = useBrandColors();
   const [step, setStep] = useState<StepKey>(() => firstIncompleteStep(state));
+  const [helperOpen, setHelperOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   function go(next: StepKey) {
@@ -222,7 +224,30 @@ export function SellerWizard({
         No back button: completed steps are reachable from the chips below. */}
     <View style={styles.topBar}>
       <Text style={[styles.topTitle, { color: c.text }]}>Seller Hub</Text>
+      {/* Contextual AI — the seller-onboarding helper agent (mirrors the
+          web's floating assistant on the Become-a-Seller flow). */}
+      <Pressable
+        onPress={() => setHelperOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Onboarding helper — ask about KYC and setup"
+        hitSlop={8}
+        style={({ pressed }) => [
+          styles.helperBtn,
+          { borderColor: c.border, opacity: pressed ? 0.7 : 1 },
+        ]}
+      >
+        <Ionicons name="sparkles-outline" size={14} color={c.primary} />
+        <Text style={[styles.helperBtnText, { color: c.primary }]}>Helper</Text>
+      </Pressable>
     </View>
+    <AgentHelperSheet
+      visible={helperOpen}
+      onClose={() => setHelperOpen(false)}
+      agentId="seller-onboarding"
+      title="Onboarding helper"
+      intro="I can explain any step of becoming a seller — DigiLocker and Aadhaar, PAN, GST choices, bank verification, what documents you need and why. What's confusing you?"
+      placeholder="Ask about a step…"
+    />
     <ScrollView
       ref={scrollRef}
       contentContainerStyle={styles.scroll}
@@ -325,6 +350,16 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.one,
     minHeight: 46,
   },
+  helperBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    minHeight: 34,
+  },
+  helperBtnText: { fontSize: 12, fontFamily: Fonts.sansMedium },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
   topTitle: { flex: 1, fontSize: 21, fontFamily: Fonts.sansSemiBold },
   scroll: { padding: Spacing.three, paddingTop: Spacing.one, paddingBottom: Spacing.five, gap: Spacing.three },

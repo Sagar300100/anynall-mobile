@@ -131,6 +131,10 @@ export interface NewShow {
   explicitContent: boolean;
   mutedWords: string[];
   thumbnailUrl?: string | null;
+  /** Discovery fields — same names the web scheduler writes. All optional. */
+  subcategory?: string;
+  brand?: string;
+  tags?: string[];
 }
 
 /** Creates the show and returns its real Firestore id.
@@ -165,7 +169,9 @@ export async function createShow(p: NewShow): Promise<string> {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     category: p.category,
     primarySellingFormat: p.sellingFormat,
-    subcategory: '',
+    subcategory: p.subcategory || '',
+    brand: p.brand || '',
+    tags: Array.isArray(p.tags) ? p.tags : [],
     thumbnail_url: p.thumbnailUrl || null,
     language: p.language,
     discoverability: p.discoverability,
@@ -225,6 +231,9 @@ export interface ShowEditable {
   mutedWords: string[];
   thumbnailUrl: string | null;
   sellerNotes: string;
+  subcategory: string;
+  brand: string;
+  tags: string[];
 }
 
 export async function getShowEditable(id: string): Promise<ShowEditable | null> {
@@ -242,6 +251,9 @@ export async function getShowEditable(id: string): Promise<ShowEditable | null> 
     mutedWords: Array.isArray(d.mutedWords) ? d.mutedWords.map(String) : [],
     thumbnailUrl: d.thumbnail_url ? String(d.thumbnail_url) : null,
     sellerNotes: String(d.sellerNotes ?? ''),
+    subcategory: String(d.subcategory ?? ''),
+    brand: String(d.brand ?? ''),
+    tags: Array.isArray(d.tags) ? d.tags.map(String) : [],
   };
 }
 
@@ -254,6 +266,9 @@ export async function updateShow(id: string, p: NewShow): Promise<void> {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     category: p.category,
     primarySellingFormat: p.sellingFormat,
+    subcategory: p.subcategory || '',
+    brand: p.brand || '',
+    tags: Array.isArray(p.tags) ? p.tags : [],
     thumbnail_url: p.thumbnailUrl || null,
     language: p.language,
     discoverability: p.discoverability,

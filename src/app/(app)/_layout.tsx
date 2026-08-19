@@ -132,6 +132,12 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="shipping-settings" options={{ href: null }} />
       <Tabs.Screen name="seller-analytics" options={{ href: null }} />
       <Tabs.Screen name="promote-tools" options={{ href: null }} />
+      <Tabs.Screen name="seller-shows" options={{ href: null }} />
+      <Tabs.Screen name="seller-tips" options={{ href: null }} />
+      <Tabs.Screen name="seller-status" options={{ href: null }} />
+      <Tabs.Screen name="account-health" options={{ href: null }} />
+      {/* Replay hides the bar — it's a full-bleed player. */}
+      <Tabs.Screen name="replay" options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="order/[id]" options={{ href: null }} />
       <Tabs.Screen name="people-search" options={{ href: null }} />
       <Tabs.Screen name="account/edit-profile" options={{ href: null }} />

@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
+import { cancelShowReminder, isReminderSet, scheduleShowReminder } from '@/lib/reminders';
 import { markShowTapped } from '@/lib/stream';
 import { startJoin } from '@/lib/stream-join';
 import { useSession } from '@/lib/session';
@@ -34,6 +36,59 @@ export default function ShowDetailScreen() {
   const show = shows.find((s) => String(s.id) === String(id));
   const [messaging, setMessaging] = useState(false);
   const [messageErr, setMessageErr] = useState<string | null>(null);
+  // Real local reminder state — re-checked on focus so the button never lies.
+  const [reminded, setReminded] = useState(false);
+  const [remindBusy, setRemindBusy] = useState(false);
+
+  const showIdForReminder = show ? String(show.id) : null;
+  useFocusEffect(
+    useCallback(() => {
+      if (!showIdForReminder) return;
+      let cancelled = false;
+      isReminderSet(showIdForReminder).then((v) => {
+        if (!cancelled) setReminded(v);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [showIdForReminder])
+  );
+
+  async function toggleReminder() {
+    if (!show || remindBusy) return;
+    setRemindBusy(true);
+    try {
+      if (reminded) {
+        await cancelShowReminder(String(show.id));
+        setReminded(false);
+      } else {
+        await scheduleShowReminder({
+          showId: String(show.id),
+          title: show.name,
+          scheduledTimeIso: show.scheduled_time || '',
+        });
+        setReminded(true);
+      }
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      if (code === 'PERMISSION_DENIED') {
+        Alert.alert(
+          'Notifications are off',
+          'Allow notifications for Any&All in system settings to get show reminders.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open settings', onPress: () => Linking.openSettings().catch(() => {}) },
+          ]
+        );
+      } else if (code === 'TOO_LATE') {
+        Alert.alert('Starting too soon', 'This show starts in the next few minutes — jump in from Live instead.');
+      } else {
+        Alert.alert('Couldn\u2019t set the reminder', 'Please try again.');
+      }
+    } finally {
+      setRemindBusy(false);
+    }
+  }
 
   const canMessageSeller = !!show?.ownerUid && show.ownerUid !== user?.uid;
 
@@ -205,15 +260,21 @@ export default function ShowDetailScreen() {
           ) : show.replayUrl ? (
             <PrimaryButton
               title="Watch replay"
-              onPress={() => WebBrowser.openBrowserAsync(show.replayUrl!)}
+              onPress={() =>
+                router.push({
+                  pathname: '/replay',
+                  params: { url: show.replayUrl!, title: show.name },
+                })
+              }
             />
           ) : (
+            // REAL local reminder — a scheduled device notification ~10 min
+            // before the show. Device-local by design: no push backend exists.
             <PrimaryButton
-              title="Remind me"
+              title={reminded ? 'Reminder set \u2713 \u00b7 tap to cancel' : 'Remind me'}
               variant="ghost"
-              onPress={() => {
-                /* Wired to push notifications once the dev build lands. */
-              }}
+              onPress={toggleReminder}
+              loading={remindBusy}
             />
           )}
         </View>

@@ -75,6 +75,15 @@
           "photosPermission": "Any&All uses your photo library so you can choose a profile photo.",
           "cameraPermission": "Any&All uses your camera so you can take a profile photo."
         }
+      ],
+      "expo-video",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#4DB8FF",
+          "defaultChannel": "show-reminders"
+        }
       ]
     ],
     "experiments": {

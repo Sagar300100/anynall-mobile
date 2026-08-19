@@ -1,9 +1,9 @@
 // Route shell for Seller Tools destinations that have no screen yet.
 //
-// Inventory, Orders/Fulfilment, Shipping Settings and Seller Analytics now
-// have real screens. Rather than fake the remaining tools — or wire dead rows
-// that do nothing — each unimplemented one navigates here and says plainly
-// that it isn't built, offering the web hub when the web genuinely has it.
+// Only four tools remain unbuilt — Offers, Payouts, Refer-Buyers and
+// Rehearsal Mode — and each is blocked on a BACKEND that doesn't exist
+// (coupon/discount model, payouts ledger, referral attribution, rehearsal
+// rooms). Rather than fake them, each navigates here and says so plainly.
 // Nothing here pretends to be functionality.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -19,13 +19,9 @@ const WEB_HUB = 'https://anynall.com';
 
 /** slug → display name and whether the web hub actually covers it today. */
 const TOOLS: Record<string, { title: string; onWeb: boolean }> = {
-  shows: { title: 'Shows', onWeb: true },
   offers: { title: 'Offers', onWeb: false },
-  payouts: { title: 'Payouts', onWeb: true },
-  tips: { title: 'Tips', onWeb: false },
+  payouts: { title: 'Payouts', onWeb: false },
   refer: { title: 'Refer Buyers, Gain Followers', onWeb: false },
-  'account-health': { title: 'Account Health', onWeb: false },
-  'seller-status': { title: 'Seller Status', onWeb: false },
   rehearsal: { title: 'Rehearsal Mode', onWeb: false },
 };
 

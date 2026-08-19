@@ -4,11 +4,12 @@
 // groups. Nothing added: no Help & Support, no Bank Details, no Store
 // Information, no Return/Refund settings, no Logout, no Premier Shop.
 //
-// Real screens: Inventory, Orders & Fulfilment (Shiprocket booking/tracking),
-// Shipping Settings (pickup address + rate quotes), and Seller Analytics.
-// The remaining rows navigate to /seller-tool/[slug], which states plainly
-// that the tool isn't built rather than faking one — and Vacation Mode is a
-// real server-persisted toggle, not a decorative switch.
+// Real screens: Inventory, Shows, Orders & Fulfilment (Shiprocket booking/
+// tracking), Shipping Settings, Seller Analytics, Promote Tools, Tips,
+// Seller Status and Account Health. Only the rows whose BACKENDS don't exist
+// yet (Offers, Payouts, Refer-Buyers, Rehearsal) navigate to
+// /seller-tool/[slug], which states plainly that the tool isn't built rather
+// than faking one — and Vacation Mode is a real server-persisted toggle.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -31,7 +32,7 @@ type Row = {
 
 const MANAGE: Row[] = [
   { icon: 'pricetag-outline', label: 'Inventory', href: '/inventory' },
-  { icon: 'videocam-outline', label: 'Shows', href: '/seller-tool/shows' },
+  { icon: 'videocam-outline', label: 'Shows', href: '/seller-shows' },
   { icon: 'pricetags-outline', label: 'Offers', href: '/seller-tool/offers' },
 ];
 
@@ -41,7 +42,7 @@ const SALES: Row[] = [
   // ship/label/pickup/track workflow (mirrors the web ShipmentsPanel).
   { icon: 'car-outline', label: 'Fulfilment', href: '/seller-orders' },
   { icon: 'receipt-outline', label: 'Orders', href: '/seller-orders' },
-  { icon: 'bulb-outline', label: 'Tips', href: '/seller-tool/tips' },
+  { icon: 'bulb-outline', label: 'Tips', href: '/seller-tips' },
 ];
 
 const PROMOTIONS: Row[] = [
@@ -51,12 +52,12 @@ const PROMOTIONS: Row[] = [
 
 const PERFORMANCE: Row[] = [
   { icon: 'bar-chart-outline', label: 'Seller Analytics', href: '/seller-analytics' },
-  { icon: 'shield-checkmark-outline', label: 'Account Health', href: '/seller-tool/account-health' },
+  { icon: 'shield-checkmark-outline', label: 'Account Health', href: '/account-health' },
 ];
 
 const SETTINGS: Row[] = [
   { icon: 'car-outline', label: 'Shipping Settings', href: '/shipping-settings' },
-  { icon: 'list-outline', label: 'Seller Status', href: '/seller-tool/seller-status' },
+  { icon: 'list-outline', label: 'Seller Status', href: '/seller-status' },
   { icon: 'chatbox-outline', label: 'Rehearsal Mode', href: '/seller-tool/rehearsal' },
 ];
 

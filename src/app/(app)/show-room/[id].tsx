@@ -49,6 +49,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { BroadcastStage } from '@/components/broadcast-stage';
 import { LiveListings } from '@/components/live-listings';
+import { AgentHelperSheet } from '@/components/agent-helper-sheet';
 import { ShowMoreSheet } from '@/components/show-more-sheet';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
@@ -107,6 +108,7 @@ export default function ShowRoomScreen() {
   const [shopCount, setShopCount] = useState<number | null>(null);
   const [shopOpen, setShopOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [helperOpen, setHelperOpen] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [goingLive, setGoingLive] = useState(false);
   // The lot on the block. The seller was running a live auction with no idea
@@ -476,6 +478,17 @@ export default function ShowRoomScreen() {
               <Ionicons name="share-outline" size={18} color="#4A8FE5" />
               <Text style={styles.secondaryBtnText}>Share Show</Text>
             </Pressable>
+            {/* Contextual AI — the live-show helper agent (same one the web's
+                floating assistant switches to in the studio). */}
+            <Pressable
+              onPress={() => setHelperOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Show helper — AI tips for running this show"
+              style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
+            >
+              <Ionicons name="sparkles-outline" size={17} color="#4A8FE5" />
+              <Text style={styles.secondaryBtnText}>Show Helper</Text>
+            </Pressable>
             <Pressable
               onPress={() =>
                 Alert.alert(
@@ -655,6 +668,14 @@ export default function ShowRoomScreen() {
       </Modal>
 
       {/* ── More → show controls ── */}
+      <AgentHelperSheet
+        visible={helperOpen}
+        onClose={() => setHelperOpen(false)}
+        agentId="live-show"
+        title="Show helper"
+        intro="I help you run a better live show — openers, pacing, auction timing, chat prompts, and what to do when the room goes quiet. What are you selling today?"
+        placeholder="Ask about running your show…"
+      />
       <ShowMoreSheet
         visible={moreOpen}
         showId={showId}
