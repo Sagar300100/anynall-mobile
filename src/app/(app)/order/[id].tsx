@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { listMyOrders, type BuyerOrder } from '@/lib/api';
+import { humanizeStatus } from '@/lib/commerce';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
 import { db } from '@/lib/firebase';
 import { trackOrder, SHIP_STAGE, type TrackingInfo } from '@/lib/shipping';
@@ -32,6 +33,9 @@ function rupees(paise: number) {
   return `₹${((paise ?? 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
+/** Mirrors lib/seller-hub's ORDER_STATUS vocabulary — pending_payment → paid
+ *  is the real lifecycle, with payment_expired / payment_failed /
+ *  late_success_review as the non-paid outcomes the backend writes. */
 const ORDER_STATUS_LABEL: Record<string, string> = {
   paid: 'Paid',
   confirmed: 'Confirmed',
@@ -39,6 +43,10 @@ const ORDER_STATUS_LABEL: Record<string, string> = {
   delivered: 'Delivered',
   pending: 'Awaiting payment',
   created: 'Awaiting payment',
+  pending_payment: 'Awaiting payment',
+  late_success_review: 'Under review',
+  payment_expired: 'Payment expired',
+  payment_failed: 'Payment failed',
   cancelled: 'Cancelled',
   refunded: 'Refunded',
   failed: 'Payment failed',
@@ -155,7 +163,7 @@ export default function BuyerOrderDetailScreen() {
               <Text style={[styles.amount, { color: c.text }]}>{rupees(order.amount)}</Text>
               <View style={[styles.pill, { borderColor: c.primary }]}>
                 <Text style={[styles.pillText, { color: c.primary }]}>
-                  {ORDER_STATUS_LABEL[order.status] || order.status}
+                  {ORDER_STATUS_LABEL[order.status] || humanizeStatus(order.status)}
                 </Text>
               </View>
             </View>

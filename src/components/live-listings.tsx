@@ -55,9 +55,12 @@ const SORTS: { value: Sort; label: string }[] = [
   { value: 'price-desc', label: 'Price: high to low' },
 ];
 
-/** Orders that have not been paid for yet. Mirrors ORDER_STATUS's "Awaiting
- *  payment" tone rather than guessing at statuses. */
-const UNPAID = new Set(['pending', 'created']);
+/** Orders that have not been paid for yet. `pending_payment` is what the
+ *  backend actually writes when an order is created (ordersRouter buy-now,
+ *  auctionsRouter winner order); `pending`/`created` stay as defensive
+ *  aliases. Mirrors ORDER_STATUS's "Awaiting payment" entries — expired and
+ *  failed payments are dead, not awaiting. */
+const UNPAID = new Set(['pending', 'created', 'pending_payment']);
 
 export function LiveListings({
   visible,

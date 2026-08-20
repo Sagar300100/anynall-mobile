@@ -30,6 +30,7 @@ import { GuestPrompt } from '@/components/guest-prompt';
 import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useAuthStatus } from '@/lib/auth-gate';
+import { humanizeStatus } from '@/lib/commerce';
 import { getSellingOrders, ORDER_STATUS, type SellingOrder } from '@/lib/seller-hub';
 import { getShippingStatus, requestPickup, shipOrder, trackOrder, SHIP_STAGE } from '@/lib/shipping';
 
@@ -206,7 +207,7 @@ function OrderCard({
 
   // Shipment stage beats raw order status once booking starts.
   const stage = shipment?.status ? SHIP_STAGE[shipment.status] : null;
-  const statusMeta = ORDER_STATUS[order.status] || { label: order.status, tone: 'muted' as const };
+  const statusMeta = ORDER_STATUS[order.status] || { label: humanizeStatus(order.status), tone: 'muted' as const };
   const pillLabel = stage || (paid ? 'Paid · ready to ship' : statusMeta.label);
   const pillColor = stage ? '#7CE0A8' : paid ? c.primary : statusMeta.tone === 'bad' ? c.danger : statusMeta.tone === 'warn' ? '#FFC46B' : c.textSecondary;
 

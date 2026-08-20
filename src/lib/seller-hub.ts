@@ -54,8 +54,8 @@ export interface SellingOrder {
   purchaseType: string;
   buyerName: string | null;
   destination: { city: string | null; stateCode: string | null; pincode: string | null } | null;
-  /** Paise breakdown when present: { itemSubtotal, shippingFee, total }. */
-  pricing: { itemSubtotal?: number; shippingFee?: number; total?: number } | null;
+  /** Paise breakdown when present: { itemSubtotal, shippingFee, totalAmount }. */
+  pricing: { itemSubtotal?: number; shippingFee?: number; totalAmount?: number } | null;
   /** Shiprocket booking state — see lib/shipping.ts Shipment. */
   shipment: import('./shipping').Shipment | null;
   createdAt: string | null;
@@ -204,7 +204,15 @@ export function createProduct(p: {
   );
 }
 
-/** Order status → how it should read and which tone it carries. */
+/** Order status → how it should read and which tone it carries.
+ *
+ *  The statuses the backend actually writes to order docs are
+ *  `pending_payment` → `paid`, with `payment_expired` / `payment_failed`
+ *  when the window lapses and `late_success_review` when a payment lands
+ *  after the unit is gone. Labels mirror the web client's vocabulary
+ *  (ShipmentsPanel / LiveRoomPage); the rest are kept defensively.
+ *  Anything unmapped should fall back to humanizeStatus (lib/commerce),
+ *  never to the raw snake_case value. */
 export const ORDER_STATUS: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 'muted' }> = {
   paid: { label: 'Paid', tone: 'ok' },
   confirmed: { label: 'Confirmed', tone: 'ok' },
@@ -212,6 +220,10 @@ export const ORDER_STATUS: Record<string, { label: string; tone: 'ok' | 'warn' |
   delivered: { label: 'Delivered', tone: 'ok' },
   pending: { label: 'Awaiting payment', tone: 'warn' },
   created: { label: 'Awaiting payment', tone: 'warn' },
+  pending_payment: { label: 'Awaiting payment', tone: 'warn' },
+  late_success_review: { label: 'Under review', tone: 'warn' },
+  payment_expired: { label: 'Payment expired', tone: 'bad' },
+  payment_failed: { label: 'Payment failed', tone: 'bad' },
   cancelled: { label: 'Cancelled', tone: 'bad' },
   refunded: { label: 'Refunded', tone: 'muted' },
   failed: { label: 'Payment failed', tone: 'bad' },

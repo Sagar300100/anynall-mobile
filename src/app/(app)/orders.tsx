@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DisplayText, useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { listMyOrders, type BuyerOrder } from '@/lib/api';
+import { humanizeStatus } from '@/lib/commerce';
 
 function formatAmount(order: BuyerOrder) {
   const rupees = (order.amount ?? 0) / 100; // paise → ₹, Razorpay convention
@@ -29,6 +30,8 @@ function statusColor(status: string, c: ReturnType<typeof useBrandColors>) {
       return c.primary;
     case 'cancelled':
     case 'failed':
+    case 'payment_failed':
+    case 'payment_expired':
       return c.danger;
     default:
       return c.textSecondary;
@@ -111,7 +114,7 @@ export default function OrdersScreen() {
                 <Text
                   style={[styles.status, { color: statusColor(item.status, c) }]}
                 >
-                  {(item.status || 'pending').toUpperCase()}
+                  {humanizeStatus(item.status || 'pending').toUpperCase()}
                 </Text>
                 {item.createdAt && (
                   <Text style={[styles.date, { color: c.textSecondary }]}>
