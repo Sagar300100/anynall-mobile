@@ -62,7 +62,20 @@ export function subscribeMessages(
   return onSnapshot(
     q,
     (snap) => {
-      onChange(snap.docs.map((d) => toChatDoc(d.data())).reverse());
+      onChange(
+        snap.docs
+          .map((d) => d.data())
+          // Drop legacy docs whose createdAt is an ISO STRING (the old
+          // seller-room write). Firestore's DESC index sorts strings ahead of
+          // every Timestamp, so they'd permanently occupy the head of this
+          // capped window AND render at the visual bottom as if newest —
+          // starving live messages out. They carry no usable order; hide them.
+          // (createdAt === null is KEPT: that's the latency-compensated local
+          // state of a message this device just sent.)
+          .filter((raw: any) => typeof raw?.createdAt !== 'string')
+          .map(toChatDoc)
+          .reverse()
+      );
     },
     (err) => {
       console.warn('[chat] listener error:', (err as any)?.message);

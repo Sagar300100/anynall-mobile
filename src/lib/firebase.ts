@@ -94,10 +94,21 @@ export async function getAppCheckHeader(forceRefresh = false): Promise<Record<st
   if (!forceRefresh && cachedToken && cachedToken.expiresAt - 60_000 > now) {
     return { "X-Firebase-AppCheck": cachedToken.token };
   }
-  if (!forceRefresh && now < failedUntil) return {};
+  // A token past the refresh buffer but not actually expired is still better
+  // than no header — serve it on the backoff/failure paths below.
+  const stillValid = (): Record<string, string> =>
+    cachedToken && cachedToken.expiresAt > Date.now()
+      ? { "X-Firebase-AppCheck": cachedToken.token }
+      : {};
+  if (!forceRefresh && now < failedUntil) return stillValid();
   if (inflightExchange) return inflightExchange;
 
   inflightExchange = (async (): Promise<Record<string, string>> => {
+    // Hard timeout: every j() call awaits this shared promise, so a hung
+    // exchange fetch (no response, no error) would freeze the ENTIRE API
+    // surface of the app — abort instead and fall back.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
       const res = await fetch(
         `https://firebaseappcheck.googleapis.com/v1/projects/${firebaseConfig.projectId}/apps/${firebaseConfig.appId}:exchangeDebugToken?key=${firebaseConfig.apiKey}`,
@@ -105,12 +116,13 @@ export async function getAppCheckHeader(forceRefresh = false): Promise<Record<st
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ debug_token: DEBUG_TOKEN }),
+          signal: controller.signal,
         }
       );
       if (!res.ok) {
         console.warn("[appcheck] debug token exchange failed:", res.status);
         failedUntil = Date.now() + 30_000;
-        return {};
+        return stillValid();
       }
       const data = await res.json();
       // ttl arrives like "3600s"
@@ -121,8 +133,9 @@ export async function getAppCheckHeader(forceRefresh = false): Promise<Record<st
     } catch (err) {
       console.warn("[appcheck] token unavailable:", (err as any)?.message || err);
       failedUntil = Date.now() + 30_000;
-      return {};
+      return stillValid();
     } finally {
+      clearTimeout(timer);
       inflightExchange = null;
     }
   })();

@@ -54,8 +54,17 @@ async function engineViewerToken(showId: string, displayName?: string): Promise<
 }
 
 /** Host: marks the show live and returns a publish-capable token.
- *  Viewer: returns a subscribe-only token, or throws SHOW_NOT_LIVE. */
-export async function getStreamToken(showId: string, role: StreamRole, displayName?: string) {
+ *  Viewer: returns a subscribe-only token, or throws SHOW_NOT_LIVE.
+ *  opts.heartbeat (host only) marks the liveRooms doc as heartbeat-capable —
+ *  the backend's stale-room sweep then holds it to the tight (35 min)
+ *  schedule instead of the conservative backstop meant for hosts (like the
+ *  web studio) that never re-mint. */
+export async function getStreamToken(
+  showId: string,
+  role: StreamRole,
+  displayName?: string,
+  opts?: { heartbeat?: boolean }
+) {
   // Viewers try the always-warm engine first. SHOW_NOT_LIVE is an answer, not
   // a failure — it propagates. Anything else falls back to the API path, so a
   // down engine only ever costs the 2s timeout, never the join.
@@ -71,7 +80,15 @@ export async function getStreamToken(showId: string, role: StreamRole, displayNa
   }
   return j<StreamGrant>(
     '/api/stream/token',
-    { method: 'POST', body: JSON.stringify({ roomId: showId, role, displayName }) },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        roomId: showId,
+        role,
+        displayName,
+        ...(role === 'host' && opts?.heartbeat ? { heartbeat: true } : {}),
+      }),
+    },
     true
   );
 }

@@ -75,10 +75,18 @@ const STALE_CTX_CODES = new Set([
   'SETUP_REQUIRED',
   'AUCTION_TERMS_REQUIRED',
   'BID_BLOCKED_UNPAID',
-  'EMAIL_NOT_VERIFIED',
   'NOT_ELIGIBLE',
   'INTERSTATE_BLOCKED',
   'DELIVERY_STATE_REQUIRED',
+  // The engine's can-buy check fails CLOSED with this when its cached ID
+  // token has expired (the socket lives for the whole session; tokens live an
+  // hour) — the single most likely stale verdict, and the one whose entire
+  // meaning is "the cached check could not run". The HTTP replay runs it
+  // fresh; reauth() reconnects with a fresh token.
+  'ELIGIBILITY_UNAVAILABLE',
+  'SELLER_UNKNOWN',
+  'SELLER_NOT_ACTIVE',
+  'SELLER_STATE_UNKNOWN',
 ]);
 /** Replay horizon: a gate error landing later than this can't be paired with
  *  the tap that caused it, so it is surfaced instead of replayed. */
@@ -181,11 +189,17 @@ function handle(raw: string) {
           .catch((httpErr: unknown) => {
             const text = httpErr instanceof Error ? httpErr.message : String(httpErr);
             const m = text.match(/"message"\s*:\s*"([^"]+)"/);
-            const real: EngineError = {
-              code: err.code,
-              message: m?.[1] || err.message,
-              auctionId,
-            };
+            // Only a parsed HTTP verdict may be surfaced. A network
+            // failure/timeout must NOT resurface the stale gate text — the
+            // buyer would read "add a delivery address" seconds after doing
+            // exactly that, when the truth is the bid was dropped in transit.
+            const real: EngineError = m?.[1]
+              ? { code: err.code, message: m[1], auctionId }
+              : {
+                  code: 'BID_FAILED',
+                  message: 'Your bid didn’t go through — try again.',
+                  auctionId,
+                };
             for (const s of subs.values()) s.onError(real);
           });
         return;
@@ -221,11 +235,21 @@ export function reauth(): void {
 
 /** Open the socket and authenticate. Resolves either way — failure is a
  *  normal, expected state, not an exception the caller has to handle. */
+/** True while a connect() is between its guard and assigning `socket` (the
+ *  token fetch is a real network await). Without this, a reconnect timer's
+ *  connect() and a reauth()-triggered connect() could both pass the null-socket
+ *  guard and open TWO sockets whose handlers then fight over module state. */
+let connectInFlight = false;
+
 export async function connect(): Promise<void> {
-  if (!ENGINE_URL || socket) return;
+  if (!ENGINE_URL || socket || connectInFlight) return;
+  connectInFlight = true;
 
   const token = await auth.currentUser?.getIdToken().catch(() => null);
-  if (!token) return;
+  if (!token) {
+    connectInFlight = false;
+    return;
+  }
 
   try {
     const ws = new WebSocket(ENGINE_URL);
@@ -248,6 +272,8 @@ export async function connect(): Promise<void> {
     socket = null;
     authed = false;
     scheduleReconnect();
+  } finally {
+    connectInFlight = false;
   }
 }
 

@@ -276,7 +276,11 @@ export default function LiveRoomScreen() {
   // in the chat column instead, and no doomed listener is opened at all.
   useEffect(() => {
     if (!id || !user) return;
-    const unsubscribe = subscribeMessages(String(id), setMessages);
+    const unsubscribe = subscribeMessages(String(id), setMessages, () =>
+      // Signed-in and the listener still died (rules change, outage) — say so
+      // once rather than leaving a silently dead column.
+      setNotice('Chat is unavailable right now.')
+    );
     return unsubscribe;
   }, [id, user]);
 

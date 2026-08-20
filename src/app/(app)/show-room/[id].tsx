@@ -24,7 +24,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import {
   collection,
   doc,
-  getDoc,
   limit,
   onSnapshot,
   orderBy,
@@ -123,33 +122,48 @@ export default function ShowRoomScreen() {
   const [notes, setNotes] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
 
-  // ── Show + seller ──
+  // ── Show (live) + seller (one-shot) ──
+  //
+  // The show doc is a LISTENER, not a one-shot read. isLive must track the
+  // SERVER's view: a show can be ended from the web studio on another device,
+  // or by the backend's stale-room sweep — a room stuck on stale local
+  // isLive=true kept heartbeating host tokens, which silently RE-OPENED a
+  // show someone had deliberately ended. Notes are seeded once (never
+  // overwritten mid-edit by a snapshot).
+  const notesSeeded = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [snap, s] = await Promise.allSettled([
-        getDoc(doc(db, 'shows', showId)),
-        getSellerOnboarding(),
-      ]);
-      if (cancelled) return;
-      if (snap.status === 'fulfilled' && snap.value.exists()) {
-        const d = snap.value.data();
+    notesSeeded.current = false;
+    const offShow = onSnapshot(
+      doc(db, 'shows', showId),
+      (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data();
         setTitle(String(d.title ?? 'Untitled show'));
-        setNotes(String(d.sellerNotes ?? ''));
+        if (!notesSeeded.current) {
+          notesSeeded.current = true;
+          setNotes(String(d.sellerNotes ?? ''));
+        }
         setIsLive(d.isLive === true);
         const t = d.scheduled_time ? new Date(String(d.scheduled_time)).getTime() : NaN;
         setStartsAtMs(Number.isNaN(t) ? null : t);
-      }
-      if (s.status === 'fulfilled') {
-        setSeller(s.value);
+        setNowMs(Date.now());
+      },
+      (err) => console.warn('[show-room] show listener error:', err?.message)
+    );
+
+    let cancelled = false;
+    getSellerOnboarding()
+      .then((s) => {
+        if (cancelled) return;
+        setSeller(s);
         // Heal older shows that predate the seller-identity stamp, so buyers
         // stop seeing them unnamed. Owner-only, silent, one-time per show.
-        backfillSellerIdentity(showId, s.value.storeName, s.value.storeHandle);
-      }
-      setNowMs(Date.now());
-    })();
+        backfillSellerIdentity(showId, s.storeName, s.storeHandle);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
+      offShow();
     };
   }, [showId]);
 
@@ -226,6 +240,10 @@ export default function ShowRoomScreen() {
       (snap) => {
         setChat(
           snap.docs
+            // Legacy string-createdAt docs sort ahead of every Timestamp in
+            // this DESC window and would pin themselves into it forever —
+            // same filter as lib/chat.ts.
+            .filter((d) => typeof d.data()?.createdAt !== 'string')
             .map((d) => {
               const v = d.data();
               return {
@@ -335,7 +353,9 @@ export default function ShowRoomScreen() {
     setGoingLive(true);
     try {
       if (next) {
-        await getStreamToken(showId, 'host', seller?.storeName || undefined);
+        // heartbeat: true — this client re-mints every 10 min while live, so
+        // the backend sweep may hold the room to the tight stale schedule.
+        await getStreamToken(showId, 'host', seller?.storeName || undefined, { heartbeat: true });
       } else {
         await endStream(showId);
       }
@@ -350,23 +370,18 @@ export default function ShowRoomScreen() {
   // ── Live lifecycle safety ──
   //
   // Going live opens the room gate SERVER-side the moment the host token is
-  // minted — before the camera permission prompt has even appeared. Every
-  // teardown path must therefore close the gate, or the show wears a LIVE
-  // badge in every browse rail while viewers join a permanently empty room:
-  //   • End Show button → toggleLive() (the only path that existed);
+  // minted — before the camera permission prompt has even appeared. The gate
+  // therefore has to close on every way a broadcast can actually end:
+  //   • End Show button → toggleLive();
   //   • camera/mic denied or publish failed → onBroadcastFatal below;
-  //   • seller navigates away / screen unmounts → the unmount cleanup.
-  // The web host does the same on publish failure and page unmount.
-  const isLiveRef = useRef(false);
-  useEffect(() => {
-    isLiveRef.current = isLive;
-  }, [isLive]);
-  useEffect(
-    () => () => {
-      if (isLiveRef.current) endStream(showId).catch(() => {});
-    },
-    [showId]
-  );
+  //   • ended from ANOTHER surface (web studio, backend sweep) → the show-doc
+  //     listener above flips isLive false, which stops the heartbeat and
+  //     unmounts BroadcastStage;
+  //   • app killed / show abandoned → the backend's stale-room sweep, because
+  //     the heartbeat below stops refreshing.
+  // NOTE this screen is a keep-mounted tab screen: navigating away only blurs
+  // it, so an unmount cleanup would never fire — abandonment is the SWEEP's
+  // job, not an unmount hook's.
 
   // Fatal broadcast failure: the gate is open but nothing will ever publish.
   // Close the gate and put the room back in its pre-live state. useCallback on
@@ -381,18 +396,26 @@ export default function ShowRoomScreen() {
     [showId]
   );
 
-  // Heartbeat: the backend sweeps liveRooms whose updatedAt is stale (a
-  // crashed host must not stay LIVE forever), and only host-token mints
-  // refresh that timestamp. Re-mint one every 20 minutes while live so an
-  // uninterrupted long show is never mistaken for a dead one — the grant
-  // itself is discarded, the refresh is the point.
+  // Heartbeat: the backend sweeps liveRooms whose updatedAt goes stale, and
+  // only host-token mints refresh that timestamp. Re-mint every 10 minutes
+  // (sweep fires at 35 — two missed beats are survivable) so a long
+  // uninterrupted broadcast is never mistaken for a dead one. The grant is
+  // discarded; the refresh is the point. `heartbeat: true` marks this room as
+  // heartbeat-capable so the sweep may hold it to the tight schedule.
+  // Gated on screenFocused: a blurred room's camera is not publishing, so a
+  // seller who abandons the show mid-tab-switch SHOULD be swept — keeping the
+  // heartbeat running from an invisible screen would defeat the cleanup.
+  // Gated on isLive from the DOC listener: a show ended elsewhere must never
+  // be re-opened by a heartbeat mint (host mints re-assert live=true).
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || !screenFocused) return;
     const t = setInterval(() => {
-      getStreamToken(showId, 'host', seller?.storeName || undefined).catch(() => {});
-    }, 20 * 60 * 1000);
+      getStreamToken(showId, 'host', seller?.storeName || undefined, { heartbeat: true }).catch(
+        () => {}
+      );
+    }, 10 * 60 * 1000);
     return () => clearInterval(t);
-  }, [isLive, showId, seller?.storeName]);
+  }, [isLive, screenFocused, showId, seller?.storeName]);
 
   async function saveNotes() {
     setSavingNotes(true);

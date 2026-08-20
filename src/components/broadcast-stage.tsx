@@ -68,7 +68,7 @@ export function BroadcastStage({
       }
       try {
         await AudioSession.startAudioSession();
-        const g = await getStreamToken(showId, 'host', displayName);
+        const g = await getStreamToken(showId, 'host', displayName, { heartbeat: true });
         if (cancelled) return;
         setGrant(g);
         setStatus('ready');

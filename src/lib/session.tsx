@@ -56,9 +56,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // their deep links can't resolve. Once per account per app session,
         // and deferred a beat so it never races initial navigation.
         if (promptedClaimFor.current !== u.uid) {
-          promptedClaimFor.current = u.uid;
           hasClaimedUsername()
             .then((claimed) => {
+              // Marked done only on a definitive answer — a transient read
+              // failure must not suppress the backfill for the whole session.
+              promptedClaimFor.current = u.uid;
               if (!claimed) setTimeout(() => router.push('/claim-username'), 400);
             })
             .catch(() => {});

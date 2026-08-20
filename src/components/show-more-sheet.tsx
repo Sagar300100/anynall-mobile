@@ -35,6 +35,7 @@ import { Fonts, Spacing } from '@/constants/theme';
 import type { ShowData } from '@/lib/api';
 import { createProduct, getMyProducts, type ProductKind } from '@/lib/seller-hub';
 import { deleteShow, fetchMyOtherShows } from '@/lib/shows';
+import { endStream } from '@/lib/stream';
 
 /** Copying a whole back catalogue in one tap would be a surprise, so the
  *  action is bounded and the bound is reported rather than applied silently. */
@@ -75,6 +76,12 @@ export function ShowMoreSheet({
         style: 'destructive',
         onPress: async () => {
           try {
+            // Close the live gate BEFORE deleting the doc. Cancelling
+            // mid-live otherwise left liveRooms.live=true with the show doc
+            // gone — viewers kept minting tokens into a deleted show, and
+            // /end can only close the gate while the doc still exists (it
+            // 404s afterwards). Harmless no-op for a show that isn't live.
+            await endStream(showId).catch(() => {});
             await deleteShow(showId);
             router.replace('/sell');
           } catch {

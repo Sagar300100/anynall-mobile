@@ -357,45 +357,40 @@ export async function resolveMfaLogin(code: string) {
   return { id: u.uid, email: u.email || "" };
 }
 
-/** Check whether a username is free (best-effort; real check is on claim). */
+/** Check whether a username is free (best-effort; real check is on claim).
+ *  Through j() so it gets the request timeout and App Check self-heal. */
 export async function checkUsername(
   username: string
 ): Promise<{ available: boolean; reason?: string }> {
   try {
-    const res = await fetch(
-      `${BASE}/api/profile/check-username?u=${encodeURIComponent(username)}`,
-      { headers: { ...(await getAppCheckHeader()) } }
+    return await j<{ available: boolean; reason?: string }>(
+      `/api/profile/check-username?u=${encodeURIComponent(username)}`
     );
-    if (!res.ok) return { available: false, reason: "CHECK_FAILED" };
-    return await res.json();
   } catch {
     return { available: false, reason: "CHECK_FAILED" };
   }
 }
 
 /** Atomically claim a username for the signed-in user (server is authority).
- *  Used by the post-social-signup completion step. Throws friendly errors. */
+ *  Used by the post-social-signup completion step. Throws friendly errors.
+ *  Through j() (timeout + App Check self-heal); the server's error code
+ *  arrives inside the thrown message's body text. */
 export async function claimUsername(username: string): Promise<void> {
   const u = auth.currentUser;
   if (!u) throw new Error('Sign in first.');
   const clean = username.toLowerCase().trim();
-  const token = await getIdToken(u, /*forceRefresh*/ true);
-  const r = await fetch(`${BASE}/api/profile/claim-username`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(await getAppCheckHeader()),
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ username: clean }),
-  });
-  if (!r.ok) {
-    const data = await r.json().catch(() => ({}));
-    if (data?.error === 'USERNAME_TAKEN')
+  try {
+    await j('/api/profile/claim-username', {
+      method: 'POST',
+      body: JSON.stringify({ username: clean }),
+    }, true);
+  } catch (e: unknown) {
+    const text = e instanceof Error ? e.message : String(e);
+    if (text.includes('USERNAME_TAKEN'))
       throw new Error(`@${clean} was just taken. Try another.`);
-    if (data?.error === 'INVALID_FORMAT')
+    if (text.includes('INVALID_FORMAT'))
       throw new Error('That username format isn’t allowed.');
-    if (data?.error === 'RESERVED') throw new Error('That username is reserved.');
+    if (text.includes('RESERVED')) throw new Error('That username is reserved.');
     throw new Error('Could not claim the username. Please try again.');
   }
 }

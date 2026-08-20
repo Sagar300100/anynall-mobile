@@ -36,7 +36,7 @@ import {
 } from '@/hooks/use-username-availability';
 import { claimUsername } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { ensureUserProfile } from '@/lib/users';
+import { ensureUserProfile, hasClaimedUsername } from '@/lib/users';
 
 function leave() {
   if (router.canGoBack()) router.back();
@@ -58,13 +58,33 @@ export default function ClaimUsernameScreen() {
     if (!user) leave();
   }, [user]);
 
+  // A stale/deferred push can land after the handle was already claimed
+  // (fast claim on another screen, double navigation) — verify on mount and
+  // bow out rather than offering a second claim the server would reject.
+  useEffect(() => {
+    let cancelled = false;
+    hasClaimedUsername().then((claimed) => {
+      if (claimed && !cancelled) leave();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Offer verified-free alternatives when the wanted handle is taken.
   useEffect(() => {
-    if (availability !== 'taken') {
-      setAlternatives([]);
-      return;
-    }
     let cancelled = false;
+    if (availability !== 'taken') {
+      // Deferred a tick: the React Compiler rejects a synchronous setState in
+      // an effect body as a cascading render.
+      const t = setTimeout(() => {
+        if (!cancelled) setAlternatives([]);
+      }, 0);
+      return () => {
+        cancelled = true;
+        clearTimeout(t);
+      };
+    }
     suggestAlternatives(username).then((alts) => {
       if (!cancelled) setAlternatives(alts);
     });
