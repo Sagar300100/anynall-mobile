@@ -4,12 +4,11 @@
 // security rules; message bodies are plaintext-at-rest by design (the rules
 // are the boundary — see the web service's security notes).
 //
-// MESSAGE REQUESTS (product decision): a new conversation starts as a
-// REQUEST. The person who opens it (requesterId) may write their opening
-// messages, but the other side must ACCEPT before the chat becomes a real
-// two-way thread — or DECLINE, which closes it for both. Conversations
-// created before this feature (and by the website) carry no status field and
-// are treated as accepted, so nothing existing breaks.
+// NOTE: the mobile-only "message request" lifecycle (status/'pending'/
+// requesterId) was removed — firestore.rules and the web client never knew
+// those fields, so the gate was client-side fiction. Older mobile builds may
+// have stamped status/requesterId onto existing docs; readers simply ignore
+// them and nothing writes them anymore.
 //
 //   conversations/{conversationId}
 //     participantIds: [uidA, uidB] (sorted), participantMap: {uid:true},
@@ -34,9 +33,6 @@ import {
 
 import { auth, db } from './firebase';
 
-/** Request lifecycle. Missing on old/web-created docs → treated as accepted. */
-export type ConversationStatus = 'pending' | 'accepted' | 'declined';
-
 export interface ConversationView {
   id: string;
   otherUid: string;
@@ -47,9 +43,6 @@ export interface ConversationView {
   lastMessageAt?: number; // millis
   lastMessageSenderId: string;
   unread: number;
-  status: ConversationStatus;
-  /** Who opened the conversation — the requester awaits acceptance. */
-  requesterId: string;
 }
 
 export interface ChatMessage {
@@ -85,9 +78,6 @@ export async function getOrCreateDirectConversation(
   await setDoc(ref, {
     id,
     type: 'direct',
-    // Message request: the recipient must accept before this becomes a chat.
-    status: 'pending',
-    requesterId: me.uid,
     participantIds: [me.uid, otherUid].sort(),
     participantMap: { [me.uid]: true, [otherUid]: true },
     participantMeta: {
@@ -147,10 +137,6 @@ export function subscribeMyConversations(
             lastMessageAt: c.lastMessageAt?.toMillis?.() ?? undefined,
             lastMessageSenderId: c.lastMessageSenderId || '',
             unread: (c.unreadCounts || {})[me.uid] || 0,
-            // Docs from before this feature (or from the website) have no
-            // status — they are established chats, never re-gated.
-            status: (c.status as ConversationStatus) || 'accepted',
-            requesterId: c.requesterId || '',
           };
         })
       );
@@ -171,56 +157,6 @@ export async function markConversationRead(conversationId: string): Promise<void
   await updateDoc(doc(db, 'conversations', conversationId), {
     [`unreadCounts.${me.uid}`]: 0,
   }).catch(() => {});
-}
-
-/** Realtime subscription to ONE conversation's header doc — the chat screen
- *  uses it to drive the request banner and composer gating live. */
-export function subscribeConversation(
-  conversationId: string,
-  onChange: (view: { status: ConversationStatus; requesterId: string } | null) => void
-): () => void {
-  if (!conversationId) {
-    onChange(null);
-    return () => {};
-  }
-  return onSnapshot(
-    doc(db, 'conversations', conversationId),
-    (snap) => {
-      if (!snap.exists()) {
-        onChange(null);
-        return;
-      }
-      const c = snap.data() as any;
-      onChange({
-        status: (c.status as ConversationStatus) || 'accepted',
-        requesterId: c.requesterId || '',
-      });
-    },
-    () => onChange(null)
-  );
-}
-
-/** Recipient accepts the request — the thread becomes a normal chat. */
-export async function acceptConversation(conversationId: string): Promise<void> {
-  const me = auth.currentUser;
-  if (!me || !conversationId) return;
-  await updateDoc(doc(db, 'conversations', conversationId), {
-    status: 'accepted',
-    decidedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-}
-
-/** Recipient declines — the thread is closed for both sides. (They can still
- *  change their mind later: accept stays available on their side.) */
-export async function declineConversation(conversationId: string): Promise<void> {
-  const me = auth.currentUser;
-  if (!me || !conversationId) return;
-  await updateDoc(doc(db, 'conversations', conversationId), {
-    status: 'declined',
-    decidedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
 }
 
 /** Realtime subscription to a conversation's messages, oldest first. */
@@ -281,16 +217,6 @@ export async function sendThreadMessage(
   const now = Date.now();
   if (now - lastSendAt < SEND_COOLDOWN_MS) throw new Error('Slow down a moment.');
   lastSendAt = now;
-
-  // Request gate: while pending only the requester may write (their opening
-  // messages ARE the request); declined means closed for both sides.
-  const convSnap = await getDoc(doc(db, 'conversations', conversationId));
-  const conv = convSnap.data() as any;
-  const convStatus = (conv?.status as ConversationStatus) || 'accepted';
-  if (convStatus === 'declined') throw new Error('This conversation is closed.');
-  if (convStatus === 'pending' && conv?.requesterId && conv.requesterId !== me.uid) {
-    throw new Error('Accept the message request to reply.');
-  }
 
   await addDoc(collection(db, 'conversations', conversationId, 'messages'), {
     conversationId,
