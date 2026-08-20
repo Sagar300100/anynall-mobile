@@ -64,6 +64,13 @@ const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABEL) as [TicketCategory, stri
 const GREETING =
   'Hi! I’m the Any&All support assistant. I can help with orders, payments, refunds, returns, delivery, live shows, and account questions — what’s going on?';
 
+/** Module scope on purpose: Date.now/Math.random are impure, and the purity
+ *  lint refuses them anywhere inside the component — even on a path only an
+ *  event handler reaches. */
+function mintSessionId(): string {
+  return `mob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function SupportChatScreen() {
   const c = useBrandColors();
   const status = useAuthStatus();
@@ -74,17 +81,15 @@ export default function SupportChatScreen() {
   const [error, setError] = useState<string | null>(null);
   const [ticket, setTicket] = useState<TicketState>({ step: 'none' });
   const [orderId, setOrderId] = useState('');
+  // "Didn't help" votes this conversation — the first earns a retry, the
+  // second goes to a human (web parity: components/AgentChat.tsx).
+  const [failCount, setFailCount] = useState(0);
 
   // Stable per-conversation id so repeated escalations update ONE ticket.
-  // Minted lazily on first use — Date.now/Math.random are impure, so they
-  // can't run during render.
+  // Minted lazily on first use, never during render.
   const sessionIdRef = useRef<string | null>(null);
   function getSessionId() {
-    if (!sessionIdRef.current) {
-      sessionIdRef.current = `mob-${Date.now().toString(36)}-${Math.random()
-        .toString(36)
-        .slice(2, 10)}`;
-    }
+    if (!sessionIdRef.current) sessionIdRef.current = mintSessionId();
     return sessionIdRef.current;
   }
 
@@ -98,23 +103,11 @@ export default function SupportChatScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }
 
-  async function send() {
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput('');
+  /** Stream one assistant turn for `history`. The caller has already appended
+   *  the user turn and the empty assistant bubble to `messages`. */
+  async function runTurn(history: AgentMessage[]) {
     setError(null);
     setBusy(true);
-
-    const history: AgentMessage[] = [
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user', content: text },
-    ];
-    setMessages((prev) => [
-      ...prev,
-      { role: 'user', content: text },
-      { role: 'assistant', content: '' },
-    ]);
-    scrollToEnd();
 
     const stream = streamSupportAgent(history, (delta) => {
       setMessages((prev) => {
@@ -150,10 +143,34 @@ export default function SupportChatScreen() {
           : prev
       );
       setError(err instanceof Error ? err.message : 'The assistant is unavailable right now.');
+      // Web parity: a dead assistant is itself a reason to reach a human —
+      // offer the ticket rather than leaving the user talking to an error
+      // banner. Never stomps a form already in flight.
+      setTicket((t) =>
+        t.step === 'none' ? { step: 'form', reason: 'upstream_error', category: 'other' } : t
+      );
     } finally {
       streamRef.current = null;
       setBusy(false);
     }
+  }
+
+  async function send() {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+
+    const history: AgentMessage[] = [
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: text },
+    ];
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: text },
+      { role: 'assistant', content: '' },
+    ]);
+    scrollToEnd();
+    await runTurn(history);
   }
 
   function vote(index: number, verdict: 'helpful' | 'unhelpful') {
@@ -164,9 +181,37 @@ export default function SupportChatScreen() {
     setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, voted: verdict } : m)));
     // Fire-and-forget by design — a failed vote must never interrupt the chat.
     sendSupportFeedback(question, verdict === 'helpful').catch(() => {});
-    if (verdict === 'unhelpful' && ticket.step === 'none') {
-      setTicket({ step: 'form', reason: 'didnt_help', category: 'other' });
+    if (verdict !== 'unhelpful') return;
+
+    // Web parity: the FIRST miss earns one improved attempt with the question
+    // restated; the second — or a high-risk topic — goes to a human, with the
+    // honest reason on the ticket.
+    const failures = failCount + 1;
+    setFailCount(failures);
+    const highRisk = !!answer.meta?.highRisk;
+    if (failures >= 2 || highRisk) {
+      if (ticket.step === 'none') {
+        setTicket({
+          step: 'form',
+          reason: failures >= 2 ? 'repeated_failure' : 'didnt_help',
+          category: 'other',
+        });
+      }
+      return;
     }
+    if (busy) return; // a vote on an older answer mid-stream must not fork the chat
+    const retry = `That didn't fully answer it. Please take another careful look at the sources and answer again more specifically. My question was: ${question}`;
+    const history: AgentMessage[] = [
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: retry },
+    ];
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: retry },
+      { role: 'assistant', content: '' },
+    ]);
+    scrollToEnd();
+    runTurn(history);
   }
 
   async function fileTicket() {
@@ -175,9 +220,12 @@ export default function SupportChatScreen() {
     setTicket({ step: 'submitting', reason, category });
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+      // Web parity: doc name + title + URL, so the support team can open the
+      // exact source the assistant answered from — a bare title isn't
+      // traceable.
       const sources = messages
         .flatMap((m) => m.meta?.sources ?? [])
-        .map((s) => s.title)
+        .map((s) => `${s.doc} — ${s.title}${s.url ? ` (${s.url})` : ''}`)
         .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 8);
       const res = await escalateSupport({

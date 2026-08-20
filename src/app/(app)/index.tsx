@@ -195,7 +195,7 @@ export default function LiveScreen() {
   // Warm the first live show while the buyer is still reading the list, so
   // tapping it renders an already-connected stream instead of starting a
   // ~3s token + handshake + keyframe sequence. One show only, Wi-Fi only, and
-  // it drops itself if unused — see lib/stream-preconnect.
+  // it drops itself if unused — see lib/stream-join.
   //
   // Re-warms on every FOCUS, not just on mount. Opening a show CLAIMS the warm
   // room (ownership moves to the viewer screen), so coming back to this tab

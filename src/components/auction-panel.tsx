@@ -125,9 +125,6 @@ export function AuctionPanel({
   );
   const [customOpen, setCustomOpen] = useState(false);
   const [custom, setCustom] = useState('');
-  // One finalize call per auction version — the backend is idempotent, this
-  // just avoids hammering it 4×/second from the display tick.
-  const finalizedFor = useRef<string | null>(null);
 
   const open = auction.status === 'open';
   const secondsLeft = Math.ceil(msLeft / 1000);
@@ -144,15 +141,32 @@ export function AuctionPanel({
   const nextBid =
     pendingAhead !== null ? pendingAhead + (auction.bidStep || 100) : minNextBid(auction);
 
+  // Ask for finalisation when the clock hits zero — and KEEP asking every 2s
+  // until the status actually flips. This used to fire once per auction
+  // version, so a single failed or lost /finalize left the winner waiting on
+  // the backend's 60s sweep. finalizeAuction is idempotent server-side; the
+  // busy flag keeps it to one call in flight, never the display tick's rate.
+  // An anti-snipe extension flips `dueToFinalize` back off and clears the
+  // interval, as does settlement, an auction change, or unmount.
+  const dueToFinalize = open && msLeft <= 0;
   useEffect(() => {
-    if (!open || msLeft > 0) return;
-    const key = `${auction.id}:${auction.version || 0}`;
-    if (finalizedFor.current === key) return;
-    finalizedFor.current = key;
-    finalizeAuction(auction.id).catch(() => {
-      // AUCTION_STILL_LIVE / races are normal — Firestore will push the truth.
-    });
-  }, [open, msLeft, auction.id, auction.version]);
+    if (!dueToFinalize) return;
+    let busy = false;
+    const fire = () => {
+      if (busy) return;
+      busy = true;
+      finalizeAuction(auction.id)
+        .catch(() => {
+          // AUCTION_STILL_LIVE / races are normal — Firestore will push the truth.
+        })
+        .finally(() => {
+          busy = false;
+        });
+    };
+    fire();
+    const idInterval = setInterval(fire, 2000);
+    return () => clearInterval(idInterval);
+  }, [dueToFinalize, auction.id]);
 
   async function bid(amountPaise: number) {
     if (bidding) return;

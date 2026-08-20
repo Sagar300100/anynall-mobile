@@ -32,7 +32,9 @@ function toUI(id: string, d: any): ShowData {
     time: when ? when.toTimeString().slice(0, 5) : 'TBD',
     category: d?.category ?? 'Uncategorized',
     subcategory: d?.subcategory ?? '',
-    sellingFormat: d?.sellingFormat ?? 'Auction',
+    // `sellingFormat` is what every reader (web + mobile) uses; older docs
+    // from this app's scheduler only carried `primarySellingFormat`.
+    sellingFormat: d?.sellingFormat ?? d?.primarySellingFormat ?? 'Auction',
     brand: d?.brand ?? 'N/A',
     shippedFrom: d?.shippedFrom ?? 'N/A',
     sellerRating: typeof d?.sellerRating === 'number' ? d.sellerRating : null,
@@ -168,6 +170,10 @@ export async function createShow(p: NewShow): Promise<string> {
     scheduled_time: p.scheduledAt.toISOString(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     category: p.category,
+    // BOTH spellings: every reader on both clients reads `sellingFormat`, but
+    // shows written by earlier builds of this app only carried
+    // `primarySellingFormat` — writing both keeps every reader correct.
+    sellingFormat: p.sellingFormat,
     primarySellingFormat: p.sellingFormat,
     subcategory: p.subcategory || '',
     brand: p.brand || '',
@@ -244,7 +250,7 @@ export async function getShowEditable(id: string): Promise<ShowEditable | null> 
     title: String(d.title ?? ''),
     scheduledTimeIso: d.scheduled_time ? String(d.scheduled_time) : null,
     category: String(d.category ?? ''),
-    sellingFormat: (d.primarySellingFormat ?? 'buy-it-now') as SellingFormat,
+    sellingFormat: (d.sellingFormat ?? d.primarySellingFormat ?? 'buy-it-now') as SellingFormat,
     language: String(d.language ?? 'English'),
     discoverability: (d.discoverability ?? 'public') as Discoverability,
     explicitContent: d.explicitContent === true,
@@ -265,6 +271,8 @@ export async function updateShow(id: string, p: NewShow): Promise<void> {
     scheduled_time: p.scheduledAt.toISOString(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     category: p.category,
+    // Both spellings, same reason as createShow: readers use `sellingFormat`.
+    sellingFormat: p.sellingFormat,
     primarySellingFormat: p.sellingFormat,
     subcategory: p.subcategory || '',
     brand: p.brand || '',

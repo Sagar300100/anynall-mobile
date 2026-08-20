@@ -41,12 +41,15 @@ export interface EngineError {
 type StateHandler = (auctions: EngineAuction[]) => void;
 type BidHandler = (auction: EngineAuction) => void;
 type ErrorHandler = (err: EngineError) => void;
+/** The engine closed this auction — its frame carries only the id. */
+type EndedHandler = (auctionId: string) => void;
 
 interface Subscription {
   showId: string;
   onState: StateHandler;
   onBid: BidHandler;
   onError: ErrorHandler;
+  onEnded?: EndedHandler;
 }
 
 let socket: WebSocket | null = null;
@@ -158,6 +161,17 @@ function handle(raw: string) {
       log(`bid round trip ${Date.now() - sentAt}ms`);
     }
     if (auction.showId) subs.get(auction.showId)?.onBid(auction);
+    return;
+  }
+
+  // Settlement heads-up, sent the instant the engine closes a lot — before
+  // the settle transaction and the Firestore fan-out. The frame is exactly
+  // { t: "ended", auctionId } (settleWithApi in auction-engine/src/index.js):
+  // it names an auction, not a show, so like errors it goes to every
+  // subscriber — consumers match on an auction id they already hold.
+  if (msg.t === 'ended' && typeof msg.auctionId === 'string') {
+    const auctionId = msg.auctionId;
+    for (const s of subs.values()) s.onEnded?.(auctionId);
     return;
   }
 
@@ -295,7 +309,12 @@ export function disconnect(): void {
  *  Firestore listener keeps doing the job on its own. */
 export function subscribe(
   showId: string,
-  handlers: { onState: StateHandler; onBid: BidHandler; onError: ErrorHandler }
+  handlers: {
+    onState: StateHandler;
+    onBid: BidHandler;
+    onError: ErrorHandler;
+    onEnded?: EndedHandler;
+  }
 ): () => void {
   subs.set(showId, { showId, ...handlers });
   if (isReady()) send({ t: 'sub', showId });

@@ -1,7 +1,7 @@
 // One LiveKit connection, app-wide.
 //
 // LiveKit permits a single connection per identity, and this app opens rooms
-// from TWO places: the Live tab warms one ahead of a tap (stream-preconnect),
+// from TWO places: the Live tab warms one ahead of a tap (stream-join),
 // and the live room holds one while you watch (viewer-stage). Neither could
 // see the other's connection, so leaving a show and landing back on the Live
 // tab reliably produced an overlap — the outgoing room was still tearing down

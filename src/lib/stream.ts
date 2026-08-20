@@ -93,17 +93,10 @@ export async function getStreamToken(
   );
 }
 
-// ── Viewer-token prefetch ──────────────────────────────────────────────────
-// Minting a viewer token is an HTTPS call to the Cloud Function in
-// asia-south1, which has no minInstances — so a cold start costs seconds
-// BEFORE LiveKit is even contacted. That was the bulk of the join delay.
-//
-// Kicking the request off the moment a buyer taps a live card overlaps it with
-// the screen transition, so by the time the room mounts the token is usually
-// already in hand. Only ever fired from a tap, never from render, so it can't
-// hammer the endpoint's rate limiter.
-const PREFETCH_TTL_MS = 30_000;
-const inflight = new Map<string, { at: number; promise: Promise<StreamGrant> }>();
+// ── Join timing ────────────────────────────────────────────────────────────
+// (A viewer-token prefetch cache used to live here; stream-join.ts's
+// startJoin() — which begins the whole join, token AND connect, at tap time —
+// superseded it. Only the tap markers below remain.)
 
 /** When the buyer TAPPED a show card.
  *
@@ -122,40 +115,6 @@ export function markShowTapped(showId: string): void {
 export function msSinceTap(showId: string): number | null {
   const at = tappedAt.get(showId);
   return at === undefined ? null : Date.now() - at;
-}
-
-export function prefetchViewerToken(showId: string, displayName?: string): void {
-  if (!showId) return;
-  const hit = inflight.get(showId);
-  if (hit && Date.now() - hit.at < PREFETCH_TTL_MS) return;
-  const started = Date.now();
-  console.warn('[join] tap → prefetch token started');
-  const promise = getStreamToken(showId, 'viewer', displayName).then(
-    (g) => {
-      console.warn(`[join] prefetch token resolved in ${Date.now() - started}ms`);
-      return g;
-    },
-    (err) => {
-      console.warn(`[join] prefetch token failed in ${Date.now() - started}ms`);
-      throw err;
-    }
-  ).catch((err) => {
-    // Drop it so the real join retries rather than replaying a stale failure.
-    inflight.delete(showId);
-    throw err;
-  });
-  inflight.set(showId, { at: Date.now(), promise });
-}
-
-/** Uses a prefetched token when one is fresh, otherwise requests normally. */
-export function claimViewerToken(showId: string, displayName?: string): Promise<StreamGrant> {
-  const hit = inflight.get(showId);
-  if (hit && Date.now() - hit.at < PREFETCH_TTL_MS) {
-    inflight.delete(showId);
-    return hit.promise;
-  }
-  inflight.delete(showId);
-  return getStreamToken(showId, 'viewer', displayName);
 }
 
 /** Host-only. Closes the live gate and marks the show ended. */

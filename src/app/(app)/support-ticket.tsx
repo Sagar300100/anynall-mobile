@@ -219,8 +219,11 @@ export default function SupportTicketScreen() {
           <Text style={[styles.doneTitle, { color: c.text }]}>Ticket submitted</Text>
           <Text style={[styles.doneId, { color: c.primary }]}>{done.ticketId}</Text>
           <Text style={[styles.doneBody, { color: c.textSecondary }]}>
-            We’ve emailed a copy to {email.trim()}. Replies arrive at that address — you can also
-            track it under My Tickets.
+            {/* No confirmation email exists — the backend only notifies the
+                support queue — so never claim one was sent. Replies from the
+                team DO go to the address provided. */}
+            We’ve received your request — the team will reply to {email.trim()}. Keep this ID for
+            follow-ups, and track replies under My Tickets.
           </Text>
           <View style={styles.doneActions}>
             <PrimaryButton title="View my tickets" onPress={() => router.replace('/my-tickets')} />
