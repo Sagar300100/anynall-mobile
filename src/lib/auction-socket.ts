@@ -8,6 +8,7 @@
 //
 // See ../../../AUCTION-ENGINE.md.
 import { auth } from './firebase';
+import { placeBid as placeBidHttp } from './commerce';
 
 /** Unset in any build where the engine hasn't been deployed — which is the
  *  normal state until it has, and must stay harmless. */
@@ -57,6 +58,32 @@ const subs = new Map<string, Subscription>();
 /** auctionId -> when this device last sent a bid, for round-trip timing. */
 const inflight = new Map<string, number>();
 
+/** auctionId -> the last bid this device sent over the socket, kept just long
+ *  enough to replay it over HTTP if the engine rejects it with a STALE gate
+ *  (see below). The idempotency key travels with it, so the replay can never
+ *  double-bid. */
+const lastBids = new Map<string, { amount: number; idem: string; at: number }>();
+
+/** Rejection codes computed from the bidder context the engine cached at
+ *  socket AUTH time. The engine loads that context once per connection, so a
+ *  buyer who completes Get Ready (address + method + terms) MID-SESSION keeps
+ *  getting rejected with the stale gate forever — the socket never re-reads
+ *  the profile. The HTTP bid path re-checks everything fresh, so on any of
+ *  these we (a) replay the bid over HTTP with the same idempotency key and
+ *  (b) force a reconnect so the NEXT socket bid sees the fresh context. */
+const STALE_CTX_CODES = new Set([
+  'SETUP_REQUIRED',
+  'AUCTION_TERMS_REQUIRED',
+  'BID_BLOCKED_UNPAID',
+  'EMAIL_NOT_VERIFIED',
+  'NOT_ELIGIBLE',
+  'INTERSTATE_BLOCKED',
+  'DELIVERY_STATE_REQUIRED',
+]);
+/** Replay horizon: a gate error landing later than this can't be paired with
+ *  the tap that caused it, so it is surfaced instead of replayed. */
+const REPLAY_WINDOW_MS = 15_000;
+
 function log(message: string) {
   console.warn(`[engine] ${message}`);
 }
@@ -78,13 +105,16 @@ function scheduleReconnect() {
   // whole session, so the first bid in any room already has it ready. Gated
   // on being signed in, so sign-out genuinely ends it.
   if (retryTimer || !auth.currentUser) return;
+  // Jittered (×0.5–1.5): an engine restart drops every client at once, and a
+  // deterministic schedule sent them all back in lockstep waves — a reconnect
+  // storm hitting the engine at exactly the moment it is trying to come back.
   retryTimer = setTimeout(() => {
     retryTimer = null;
     // Capped: a long outage should not turn into a busy loop, and there is no
     // urgency — HTTP is serving bids the whole time.
     retryMs = Math.min(retryMs * 2, 30_000);
     connect().catch(() => {});
-  }, retryMs);
+  }, retryMs * (0.5 + Math.random()));
 }
 
 function handle(raw: string) {
@@ -130,11 +160,63 @@ function handle(raw: string) {
       auctionId: typeof msg.auctionId === 'string' ? msg.auctionId : undefined,
       minNext: typeof msg.minNext === 'number' ? msg.minNext : undefined,
     };
+
+    // Stale-gate rescue: the engine judged this bid with the bidder context it
+    // cached when the socket authenticated, which may predate the buyer's
+    // Get Ready setup. Replay the SAME bid (same idempotency key) over HTTP,
+    // which re-reads the profile fresh — and reconnect the socket so its next
+    // judgement is current. Only the fresh HTTP verdict reaches the screen:
+    // success means the gate was stale (say nothing, the listeners will paint
+    // the accepted bid); failure means the rejection is real and the HTTP
+    // error message is the accurate one.
+    if (err.auctionId && STALE_CTX_CODES.has(err.code)) {
+      const last = lastBids.get(err.auctionId);
+      if (last && Date.now() - last.at < REPLAY_WINDOW_MS) {
+        lastBids.delete(err.auctionId); // one replay per tap, never a loop
+        const { auctionId } = err;
+        log(`gate ${err.code} — replaying bid over HTTP`);
+        reauth();
+        placeBidHttp(auctionId, last.amount, last.idem)
+          .then(() => log('HTTP replay accepted — socket gate was stale'))
+          .catch((httpErr: unknown) => {
+            const text = httpErr instanceof Error ? httpErr.message : String(httpErr);
+            const m = text.match(/"message"\s*:\s*"([^"]+)"/);
+            const real: EngineError = {
+              code: err.code,
+              message: m?.[1] || err.message,
+              auctionId,
+            };
+            for (const s of subs.values()) s.onError(real);
+          });
+        return;
+      }
+    }
+
     // An error names an auction, not a show, so it goes to every subscriber —
     // there is at most a handful, and mis-routing a rejection is worse than
     // delivering it broadly.
     for (const s of subs.values()) s.onError(err);
   }
+}
+
+/**
+ * Tear the socket down and reconnect with a fresh auth, forcing the engine to
+ * reload this bidder's commerce context (address, payment method, terms,
+ * unpaid-wins). The engine caches that context for the LIFETIME of a
+ * connection, so it must be called after anything that changes bid
+ * eligibility — saving the Get Ready sheet, completing a winner payment.
+ * Subscriptions survive: they re-send automatically on the next 'hello'.
+ */
+export function reauth(): void {
+  if (!ENGINE_URL || !auth.currentUser) return;
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  authed = false;
+  retryMs = 1000;
+  socket?.close(); // onclose nulls the socket and schedules the reconnect
+  if (!socket) connect().catch(() => {});
 }
 
 /** Open the socket and authenticate. Resolves either way — failure is a
@@ -214,6 +296,11 @@ export function subscribe(
  */
 export function placeBid(auctionId: string, amount: number, idem: string): boolean {
   const sent = send({ t: 'bid', auctionId, amount, idem });
-  if (sent) inflight.set(auctionId, Date.now());
+  if (sent) {
+    inflight.set(auctionId, Date.now());
+    // Remembered so a stale-gate rejection can replay this exact bid over
+    // HTTP (same idempotency key — a double delivery settles as one bid).
+    lastBids.set(auctionId, { amount, idem, at: Date.now() });
+  }
   return sent;
 }

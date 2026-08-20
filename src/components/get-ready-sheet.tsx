@@ -23,6 +23,7 @@ import {
   useBrandColors,
 } from '@/components/ui/form';
 import { IN_STATES } from '@/constants/in-states';
+import { reauth as reauthAuctionEngine } from '@/lib/auction-socket';
 import { useSession } from '@/lib/session';
 import { Fonts, Spacing } from '@/constants/theme';
 import {
@@ -88,6 +89,10 @@ export function GetReadySheet({ visible, profile, onReady, onClose }: Props) {
     setErr(null);
     try {
       await saveCommerceProfile({ savedAddress, preferredMethod: method, acceptAuctionTerms: true });
+      // The auction engine caches bid eligibility per CONNECTION, so without
+      // this the buyer who just finished setup keeps getting rejected with the
+      // stale "add a delivery address" gate on every socket bid.
+      reauthAuctionEngine();
       onReady();
     } catch (e: any) {
       setErr(String(e?.message || 'Could not save your details. Please retry.').slice(0, 180));
