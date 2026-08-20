@@ -16,6 +16,9 @@ import {
 import { auth, db } from './firebase';
 
 export type ChatDoc = {
+  /** Firestore doc id — the stable list key. Index keys forced the room's
+   *  chat list to re-render every row on every message; doc ids don't. */
+  id: string;
   uid?: string;
   user: string;
   avatar?: string;
@@ -35,9 +38,10 @@ const CHAT_WINDOW = 50;
  *  such doc in a show's history crashed the render of every buyer room
  *  ((item.avatar || item.user).slice() on undefined). Normalise here so every
  *  reader survives every writer that ever existed. */
-function toChatDoc(raw: any): ChatDoc {
+function toChatDoc(id: string, raw: any): ChatDoc {
   const user = String(raw?.user ?? raw?.name ?? 'Someone');
   return {
+    id,
     uid: raw?.uid,
     user,
     avatar: raw?.avatar ?? undefined,
@@ -64,7 +68,6 @@ export function subscribeMessages(
     (snap) => {
       onChange(
         snap.docs
-          .map((d) => d.data())
           // Drop legacy docs whose createdAt is an ISO STRING (the old
           // seller-room write). Firestore's DESC index sorts strings ahead of
           // every Timestamp, so they'd permanently occupy the head of this
@@ -72,8 +75,8 @@ export function subscribeMessages(
           // starving live messages out. They carry no usable order; hide them.
           // (createdAt === null is KEPT: that's the latency-compensated local
           // state of a message this device just sent.)
-          .filter((raw: any) => typeof raw?.createdAt !== 'string')
-          .map(toChatDoc)
+          .filter((d) => typeof d.data()?.createdAt !== 'string')
+          .map((d) => toChatDoc(d.id, d.data()))
           .reverse()
       );
     },
@@ -99,5 +102,9 @@ export async function sendMessage(
     avatar: payload.avatar ?? payload.user.slice(0, 2).toUpperCase(),
     isBid: !!payload.isBid,
     createdAt: serverTimestamp(),
+    // Firestore TTL field the backend is enabling: chat is ephemeral room
+    // colour, so messages delete themselves after 30 days instead of
+    // accumulating forever. The client clock is fine for a 30-day horizon.
+    expireAt: new Date(Date.now() + 30 * 24 * 3600 * 1000),
   });
 }

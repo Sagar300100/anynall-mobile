@@ -19,9 +19,11 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
-  FlatList,
+  AccessibilityInfo,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -38,6 +40,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuctionPanel } from '@/components/auction-panel';
 import { BuyNowSheet } from '@/components/buy-now-sheet';
 import { GetReadySheet } from '@/components/get-ready-sheet';
+import { LiveChat } from '@/components/live-chat';
 import { pickSpotlight, ProductSpotlight } from '@/components/product-spotlight';
 import { RazorpayCheckout } from '@/components/razorpay-checkout';
 import { useBrandColors } from '@/components/ui/form';
@@ -46,7 +49,7 @@ import { WinnerPaymentSheet } from '@/components/winner-payment-sheet';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
 import { useAuthGate } from '@/lib/auth-gate';
-import { sendMessage, subscribeMessages, type ChatDoc } from '@/lib/chat';
+import { sendMessage } from '@/lib/chat';
 import { db } from '@/lib/firebase';
 import {
   cancelFollowRequest,
@@ -79,6 +82,11 @@ const SCRIM_BOTTOM = ['rgba(3,7,18,0)', 'rgba(3,7,18,0.55)', 'rgba(3,7,18,0.92)'
 
 type RailSheet = 'wallet' | 'shop' | 'more';
 
+/** Reaction WRITE coalescing window. Every tap animates locally for free; a
+ *  Firestore 🔥 message — a write fanned out to every viewer in the room —
+ *  goes out at most once per window per device, no matter the tap count. */
+const REACTION_WRITE_GAP_MS = 8000;
+
 /** Short pill/button wording per server verdict code.
  *
  *  /api/commerce/can-buy refuses for several different reasons and only one of
@@ -108,10 +116,11 @@ export default function LiveRoomScreen() {
   const { shows } = useShows();
   const show = shows.find((s) => String(s.id) === String(id));
 
-  const [messages, setMessages] = useState<ChatDoc[]>([]);
+  // Chat lives entirely inside <LiveChat> — this screen deliberately holds NO
+  // message state, so a chat flood can't re-render the header, the rail, the
+  // auction panel or the video overlays. Only the composer is owned here.
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
-  const listRef = useRef<FlatList<ChatDoc>>(null);
 
   // ── Live commerce state (Firestore) ────────────────────────────────
   const [auctions, setAuctions] = useState<AuctionRecord[]>([]);
@@ -263,19 +272,24 @@ export default function LiveRoomScreen() {
     }
   }
 
-  /** The reaction sends a real chat message — there is no separate reactions
-   *  channel, so this rides the one that exists rather than animating nothing.
-   *  Throttled per device: every tap is a Firestore write fanned out to every
-   *  viewer in the room, so the cheapest-feeling tap must not be spammable. */
-  const lastReactionAt = useRef(0);
+  /** The reaction still sends a real chat message — there is no separate
+   *  reactions channel, so web viewers keep seeing the 🔥 they always did.
+   *  But the FEEL and the WRITE are decoupled now: every tap fires the local
+   *  floating flame immediately (only the overlay re-renders — its state is
+   *  its own), while the Firestore write, a fan-out to every viewer in the
+   *  room, coalesces to at most one per REACTION_WRITE_GAP_MS per device. */
+  const reactionsRef = useRef<ReactionOverlayHandle>(null);
+  const lastReactionWriteAt = useRef(0);
   async function sendReaction() {
     if (!user) {
       requireAuth('chat', () => {});
       return;
     }
+    // Animate NOW — the tap must feel instant regardless of what gets written.
+    reactionsRef.current?.burst();
     const now = Date.now();
-    if (now - lastReactionAt.current < 1000) return;
-    lastReactionAt.current = now;
+    if (now - lastReactionWriteAt.current < REACTION_WRITE_GAP_MS) return;
+    lastReactionWriteAt.current = now;
     try {
       await sendMessage(String(id), {
         user: user.displayName || user.email?.split('@')[0] || 'buyer',
@@ -285,20 +299,6 @@ export default function LiveRoomScreen() {
       /* transient; the chat listener is the source of truth */
     }
   }
-
-  // Chat reads are signed-in only (firestore.rules) — for a guest the listener
-  // died with permission-denied and, with no error callback, the room simply
-  // showed an empty chat that read as broken. Guests now get a sign-in prompt
-  // in the chat column instead, and no doomed listener is opened at all.
-  useEffect(() => {
-    if (!id || !user) return;
-    const unsubscribe = subscribeMessages(String(id), setMessages, () =>
-      // Signed-in and the listener still died (rules change, outage) — say so
-      // once rather than leaving a silently dead column.
-      setNotice('Chat is unavailable right now.')
-    );
-    return unsubscribe;
-  }, [id, user]);
 
   useEffect(() => {
     if (!id) return;
@@ -718,43 +718,16 @@ export default function LiveRoomScreen() {
           {/* ── Chat (left) + action rail (right) ────────────────────── */}
           <View style={styles.midRow}>
             <View style={styles.chatCol}>
-              {!chatHidden && !user && (
-                <Pressable
-                  onPress={() => requireAuth('chat', () => {})}
-                  accessibilityRole="button"
-                  accessibilityLabel="Sign in to join the chat"
-                  style={({ pressed }) => [styles.chatSignIn, pressed && { opacity: 0.8 }]}
-                >
-                  <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFFFFF" />
-                  <Text style={styles.chatSignInText}>Sign in to watch and join the chat</Text>
-                </Pressable>
-              )}
-              {!chatHidden && !!user && (
-                <FlatList
-                  ref={listRef}
-                  data={messages}
-                  keyExtractor={(_, i) => String(i)}
-                  style={styles.chatList}
-                  contentContainerStyle={styles.chatContent}
-                  showsVerticalScrollIndicator={false}
-                  onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-                  renderItem={({ item }) => (
-                    <View style={styles.msgRow}>
-                      <View style={styles.msgAvatar}>
-                        <Text style={styles.msgAvatarText}>
-                          {(item.avatar || item.user).slice(0, 1).toLowerCase()}
-                        </Text>
-                      </View>
-                      <View style={styles.msgBody}>
-                        <Text style={styles.msgUser} numberOfLines={1}>
-                          {item.user}
-                        </Text>
-                        <Text style={styles.msgText}>{item.text}</Text>
-                      </View>
-                    </View>
-                  )}
-                />
-              )}
+              {/* Self-contained: owns its subscription, buffering and state,
+                  so message floods re-render the column and nothing else.
+                  setNotice is passed directly — a setState function is
+                  referentially stable, which the memo'd child requires. */}
+              <LiveChat
+                showId={String(id ?? '')}
+                user={user}
+                hidden={chatHidden}
+                onNotice={setNotice}
+              />
             </View>
 
             <View style={styles.rail}>
@@ -819,6 +792,11 @@ export default function LiveRoomScreen() {
                 color={draft.trim() ? '#FFFFFF' : '#FF7A2F'}
               />
             </Pressable>
+
+            {/* Floating 🔥 for every tap, anchored over the reaction circle.
+                Its state is entirely its own (driven via the imperative ref),
+                so a tap-happy buyer re-renders this overlay and nothing else. */}
+            <ReactionOverlay ref={reactionsRef} />
           </View>
 
           {/* ── Bottom panel ─────────────────────────────────────────────
@@ -1153,6 +1131,129 @@ function RailButton({
   );
 }
 
+/** Imperative surface for the reaction overlay: the tap handler calls
+ *  burst() through a ref, so tapping never routes through screen state. */
+interface ReactionOverlayHandle {
+  burst: () => void;
+}
+
+/** The floating 🔥 shower over the composer's reaction circle.
+ *
+ *  Self-contained on purpose: its burst list is ITS state, driven through the
+ *  imperative handle, so a flurry of taps re-renders this ~52pt overlay and
+ *  never the screen. Honours reduced motion (AccessibilityInfo) by fading in
+ *  place instead of travelling. */
+const ReactionOverlay = forwardRef<ReactionOverlayHandle>(function ReactionOverlay(_props, ref) {
+  const [bursts, setBursts] = useState<{ id: number; drift: number }[]>([]);
+  const nextId = useRef(0);
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((v) => !cancelled && setReduceMotion(v))
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => {
+      cancelled = true;
+      sub?.remove?.();
+    };
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      burst: () => {
+        const id = nextId.current++;
+        // Sideways scatter so rapid taps read as a shower, not one flame
+        // redrawn in place. Capped so a button-masher can't accumulate an
+        // unbounded pile of animated views.
+        setBursts((prev) => [...prev.slice(-11), { id, drift: (Math.random() - 0.5) * 48 }]);
+      },
+    }),
+    []
+  );
+
+  // Stable remover: an inline closure would change identity on every burst
+  // and restart the in-flight animations' effects beneath it.
+  const removeBurst = useCallback((id: number) => {
+    setBursts((prev) => prev.filter((b) => b.id !== id));
+  }, []);
+
+  return (
+    <View style={styles.reactionOverlay} pointerEvents="none">
+      {bursts.map((b) => (
+        <FloatingFlame
+          key={b.id}
+          id={b.id}
+          drift={b.drift}
+          reduceMotion={reduceMotion}
+          onDone={removeBurst}
+        />
+      ))}
+    </View>
+  );
+});
+
+/** One flame: rises and fades over ~900ms, then removes itself. With reduced
+ *  motion it stays put and simply fades — feedback without travel. */
+function FloatingFlame({
+  id,
+  drift,
+  reduceMotion,
+  onDone,
+}: {
+  id: number;
+  /** Horizontal scatter in px, fixed at burst time. */
+  drift: number;
+  reduceMotion: boolean;
+  onDone: (id: number) => void;
+}) {
+  // useState, not the useRef(...).current idiom: the strict hooks lint reads
+  // that as a ref access during render. The initializer runs once per mount,
+  // which is exactly the lifetime one flame needs.
+  const [progress] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    const anim = Animated.timing(progress, {
+      toValue: 1,
+      duration: reduceMotion ? 650 : 900,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+    anim.start(({ finished }) => {
+      if (finished) onDone(id);
+    });
+    return () => anim.stop();
+  }, [progress, reduceMotion, onDone, id]);
+
+  const opacity = progress.interpolate({
+    inputRange: [0, 0.12, 0.72, 1],
+    outputRange: [0, 1, 1, 0],
+  });
+  const animatedStyle = reduceMotion
+    ? { opacity }
+    : {
+        opacity,
+        transform: [
+          { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, -132] }) },
+          { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, drift] }) },
+          {
+            scale: progress.interpolate({
+              inputRange: [0, 0.25, 1],
+              outputRange: [0.6, 1.15, 0.9],
+            }),
+          },
+        ],
+      };
+
+  return (
+    <Animated.Text style={[styles.reactionFlame, animatedStyle]} accessible={false}>
+      🔥
+    </Animated.Text>
+  );
+}
+
 /** Anything floating on live video needs its own contrast — the frame behind
  *  it changes every second, so a colour that works now can vanish next shot. */
 const SHADOW = {
@@ -1250,29 +1351,10 @@ const styles = StyleSheet.create({
   floatLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 14, fontFamily: Fonts.sans },
 
   // ── Chat + rail ───────────────────────────────────────────────────────
+  // The chat column's internals (list, rows, guest pill) live with LiveChat
+  // in components/live-chat.tsx; only the column slot remains here.
   midRow: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two },
   chatCol: { flex: 1 },
-  chatList: { maxHeight: 260, flexGrow: 0 },
-  chatContent: {
-    paddingHorizontal: Spacing.three,
-    paddingBottom: Spacing.two,
-    gap: Spacing.two + Spacing.one,
-  },
-  msgRow: { flexDirection: 'row', gap: Spacing.two + 2, alignItems: 'flex-start' },
-  msgAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(24,36,64,0.85)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  msgAvatarText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.sansSemiBold },
-  msgBody: { flex: 1, gap: 1 },
-  // Chat floats over live video, so it carries its own shadow rather than a
-  // panel — a solid backdrop would hide the item the seller is showing.
-  msgUser: { fontSize: 14, fontFamily: Fonts.sansSemiBold, color: 'rgba(214,224,242,0.9)', ...SHADOW },
-  msgText: { fontSize: 15.5, fontFamily: Fonts.sansSemiBold, lineHeight: 20, color: '#FFFFFF', ...SHADOW },
 
   rail: { alignItems: 'center', gap: Spacing.three + 2, paddingRight: Spacing.three, paddingBottom: Spacing.two },
   railItem: { alignItems: 'center', gap: 4, width: 60 },
@@ -1323,22 +1405,20 @@ const styles = StyleSheet.create({
   },
   reactBtnSend: { backgroundColor: '#2E6BFF', borderColor: '#2E6BFF' },
 
-  // ── Guest chat prompt ─────────────────────────────────────────────────
-  chatSignIn: {
-    flexDirection: 'row',
+  // ── Reaction flames ───────────────────────────────────────────────────
+  // Sized and positioned to sit exactly on the reaction circle (52pt, at the
+  // composer row's right padding edge); flames rise out of it. pointerEvents
+  // none, so the button underneath keeps every tap.
+  reactionOverlay: {
+    position: 'absolute',
+    right: Spacing.three,
+    bottom: Spacing.two + Spacing.one,
+    width: 52,
+    height: 52,
     alignItems: 'center',
-    gap: 7,
-    alignSelf: 'flex-start',
-    marginLeft: Spacing.three,
-    marginBottom: Spacing.two,
-    backgroundColor: 'rgba(18,26,44,0.75)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
+    justifyContent: 'center',
   },
-  chatSignInText: { color: '#FFFFFF', fontSize: 13, fontFamily: Fonts.sansSemiBold },
+  reactionFlame: { position: 'absolute', fontSize: 27 },
 
   // ── Ended overlay ─────────────────────────────────────────────────────
   endedOverlay: {

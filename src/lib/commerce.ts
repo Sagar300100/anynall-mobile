@@ -197,11 +197,27 @@ export interface BuyNowOrder {
  * The price is read server-side from the product doc — the client never
  * supplies an amount. 409s carry human-readable reasons (SOLD_OUT,
  * INTERSTATE_BLOCKED, …) in the response body.
+ *
+ * `idempotencyKey` (optional, server-accepted): one key per purchase INTENT,
+ * so a double-tap or an app-level retry replays the same reservation instead
+ * of reserving a second unit. The caller owns the key's lifetime — see
+ * BuyNowSheet, which mints one per sheet-opening.
  */
-export function createBuyNowOrder(productId: string, shipping: ShippingAddress) {
+export function createBuyNowOrder(
+  productId: string,
+  shipping: ShippingAddress,
+  idempotencyKey?: string
+) {
   return j<BuyNowOrder>(
     '/api/orders/buy-now',
-    { method: 'POST', body: JSON.stringify({ productId, shipping }) },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        productId,
+        shipping,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+      }),
+    },
     true
   );
 }

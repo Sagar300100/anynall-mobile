@@ -277,9 +277,18 @@ export async function connect(): Promise<void> {
     ws.onerror = () => {
       /* onclose always follows; reconnection is handled there */
     };
-    ws.onclose = () => {
+    ws.onclose = (e: { code?: number }) => {
       socket = null;
       authed = false;
+      // 4001 CONNECTION_REPLACED: the engine closed THIS socket because the
+      // same account authenticated from another device (per-uid cap, newest
+      // wins). Reconnecting would evict that device right back — an endless
+      // two-device fight. Final: HTTP keeps serving bids here; a fresh
+      // connect happens naturally on next sign-in or reauth().
+      if (e?.code === 4001) {
+        log('connection replaced by another device — not reconnecting');
+        return;
+      }
       scheduleReconnect();
     };
   } catch {

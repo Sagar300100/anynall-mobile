@@ -4,7 +4,7 @@
 // order from the product doc; nothing here is trusted.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { FormError, PrimaryButton, useBrandColors } from '@/components/ui/form';
@@ -13,6 +13,7 @@ import { Fonts, Spacing } from '@/constants/theme';
 import {
   createBuyNowOrder,
   formatPaise,
+  newIdempotencyKey,
   type BuyNowOrder,
   type ShippingAddress,
 } from '@/lib/commerce';
@@ -41,6 +42,16 @@ export function BuyNowSheet({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // ONE idempotency key per purchase INTENT — minted fresh each time the
+  // sheet opens for a product, held for the whole open. A double-tap on Pay
+  // or an app-level retry of the same intent then replays the SAME order
+  // server-side instead of reserving a second unit; dismissing and reopening
+  // the sheet is a new intent and gets a new key.
+  const idemKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (visible) idemKey.current = newIdempotencyKey();
+  }, [visible, product.id]);
+
   const shippingFee = product.shippingFee || 0;
   const total = (product.price || 0) + shippingFee;
   const stateName = address ? IN_STATES.find((s) => s.code === address.stateCode)?.name : '';
@@ -53,7 +64,9 @@ export function BuyNowSheet({
     setBusy(true);
     setErr(null);
     try {
-      const order = await createBuyNowOrder(product.id, address);
+      // Lazy fallback only for the impossible pay-before-open path.
+      const key = idemKey.current ?? (idemKey.current = newIdempotencyKey());
+      const order = await createBuyNowOrder(product.id, address, key);
       onOrderCreated(order);
     } catch (e: any) {
       const text = String(e?.message || '');

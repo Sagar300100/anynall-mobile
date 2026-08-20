@@ -3,26 +3,71 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ShowData } from '@/lib/api';
 import { fsFetchShows } from '@/lib/shows';
 
+// ── Module-level cache, shared across every hook instance ──────────────────
+//
+// Every room entry used to re-fetch the 60-show catalog: the Live tab, the
+// show detail screen and the live room each call useShows(), so one buyer
+// hopping between rooms cost a full collection page per mount. With this
+// cache, N mounts inside the TTL cost ONE Firestore fetch — and a warm mount
+// paints its header from the cache immediately instead of after a round trip.
+// Pull-to-refresh (refresh()) always bypasses it.
+const SHOWS_TTL_MS = 60_000;
+
+let cachedShows: ShowData[] | null = null;
+let cachedAt = 0;
+/** Concurrent mounts share one in-flight fetch instead of racing their own. */
+let inflight: Promise<ShowData[]> | null = null;
+
+function cacheFresh(): boolean {
+  return cachedShows !== null && Date.now() - cachedAt < SHOWS_TTL_MS;
+}
+
+function fetchShared(): Promise<ShowData[]> {
+  // A fetch that landed between this instance's render and its effect still
+  // counts — never pay for the same minute twice.
+  if (cacheFresh()) return Promise.resolve(cachedShows as ShowData[]);
+  if (!inflight) {
+    inflight = fsFetchShows()
+      .then((data) => {
+        cachedShows = data;
+        cachedAt = Date.now();
+        return data;
+      })
+      .finally(() => {
+        inflight = null;
+      });
+  }
+  return inflight;
+}
+
 export function useShows() {
-  const [shows, setShows] = useState<ShowData[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the cache when it is still fresh. The initializer runs once per
+  // mount, so this Date.now() read cannot make re-renders unstable — the
+  // purity rule below is about values read during EVERY render.
+  const [seed] = useState(() =>
+    cacheFresh() ? { shows: cachedShows as ShowData[], fetchedAt: cachedAt } : null
+  );
+  const [shows, setShows] = useState<ShowData[]>(seed ? seed.shows : []);
+  const [loading, setLoading] = useState(!seed);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Clock snapshot taken when data actually arrives — consumers use it for
   // "starts in Xm" maths so relative labels stay in step with the data and
   // no component reads Date.now() during render (React Compiler purity).
-  const [fetchedAt, setFetchedAt] = useState(0);
+  const [fetchedAt, setFetchedAt] = useState(seed ? seed.fetchedAt : 0);
 
   // Initial load: `loading` starts true, so every setState here happens after
   // the await (async callback), never synchronously inside the effect body.
+  // A cache-seeded mount already has its data and skips the fetch entirely.
   useEffect(() => {
+    if (seed) return;
     let cancelled = false;
     (async () => {
       try {
-        const data = await fsFetchShows();
+        const data = await fetchShared();
         if (cancelled) return;
         setShows(data);
-        setFetchedAt(Date.now());
+        setFetchedAt(cachedAt);
       } catch {
         if (!cancelled) setError("Couldn't load shows. Pull to retry.");
       } finally {
@@ -32,15 +77,20 @@ export function useShows() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // `seed` is set once at mount and never changes.
+  }, [seed]);
 
   // Pull-to-refresh — user-invoked, so the synchronous spinner flip is fine.
+  // Deliberately bypasses the cache (and refills it for everyone else).
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setError(null);
     try {
-      setShows(await fsFetchShows());
-      setFetchedAt(Date.now());
+      const data = await fsFetchShows();
+      cachedShows = data;
+      cachedAt = Date.now();
+      setShows(data);
+      setFetchedAt(cachedAt);
     } catch {
       setError("Couldn't load shows. Pull to retry.");
     } finally {
