@@ -200,6 +200,10 @@ export function SocialAuthButtons({
     setActive(provider);
     setBusy(true);
     try {
+      // Note: a first-time social account has no @handle (register()'s form
+      // never ran). SessionProvider detects that on auth-ready and routes to
+      // /claim-username — one authority for fresh sign-ins, cold starts and
+      // accounts created before the claim step existed.
       if (provider === 'google') await signInWithGoogle();
       else await signInWithApple();
     } catch (err: any) {

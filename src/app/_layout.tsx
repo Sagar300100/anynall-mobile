@@ -189,6 +189,7 @@ function AppStack() {
       <Stack.Screen name="sign-in" options={{ presentation: 'card' }} />
       <Stack.Screen name="sign-up" options={{ presentation: 'card' }} />
       <Stack.Screen name="forgot-password" options={{ presentation: 'card' }} />
+      <Stack.Screen name="claim-username" options={{ presentation: 'card' }} />
     </Stack>
   );
 }

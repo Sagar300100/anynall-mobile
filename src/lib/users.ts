@@ -114,6 +114,26 @@ export async function ensureUserProfile(): Promise<void> {
   }
 }
 
+/**
+ * Does the signed-in account have a claimed @handle?
+ *
+ * Email sign-up claims one inside register(); the SOCIAL path (Google/Apple)
+ * has no form, so it must be followed by the claim-username step. Reads the
+ * RAW users/{uid} doc — never a seeded/derived profile, whose placeholder
+ * would mask an unclaimed handle. Errors resolve true (fail open): a read
+ * hiccup must not wall a signed-in user behind the claim screen.
+ */
+export async function hasClaimedUsername(): Promise<boolean> {
+  const u = auth.currentUser;
+  if (!u) return true;
+  try {
+    const snap = await getDoc(doc(db, 'users', u.uid));
+    return !!(snap.exists() && (snap.data() as any).username);
+  } catch {
+    return true;
+  }
+}
+
 /** Resolve a username/handle to its uid via the public usernames/{handle} map. */
 export async function lookupUidByUsername(username: string): Promise<string | null> {
   const clean = (username || '').trim().toLowerCase();
