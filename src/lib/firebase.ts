@@ -75,33 +75,56 @@ export const storage = getStorage(app);
 const DEBUG_TOKEN = process.env.EXPO_PUBLIC_APPCHECK_DEBUG_TOKEN || "";
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
+/** Shared in-flight exchange: when the cached token expires, a screen mount
+ *  firing 4 parallel API calls must cost ONE exchange round trip, not four. */
+let inflightExchange: Promise<Record<string, string>> | null = null;
+/** Negative cache: after a failed exchange, every request would otherwise pay
+ *  a doomed exchange round trip before its guaranteed 401 — exactly when the
+ *  App Check endpoint is unhealthy. Back off briefly instead. */
+let failedUntil = 0;
 
-export async function getAppCheckHeader(): Promise<Record<string, string>> {
+export async function getAppCheckHeader(forceRefresh = false): Promise<Record<string, string>> {
+  // NOTE(app-check): the debug-token exchange below is the interim path.
+  // Real device attestation (Play Integrity / App Attest) plugs in ahead of it
+  // once the native module ships in the EAS build — see
+  // docs/app-check-rollout.md. Metro resolves require() statically, so the
+  // native provider cannot be referenced before the package is installed.
   if (!DEBUG_TOKEN) return {};
   const now = Date.now();
-  if (cachedToken && cachedToken.expiresAt - 60_000 > now) {
+  if (!forceRefresh && cachedToken && cachedToken.expiresAt - 60_000 > now) {
     return { "X-Firebase-AppCheck": cachedToken.token };
   }
-  try {
-    const res = await fetch(
-      `https://firebaseappcheck.googleapis.com/v1/projects/${firebaseConfig.projectId}/apps/${firebaseConfig.appId}:exchangeDebugToken?key=${firebaseConfig.apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ debug_token: DEBUG_TOKEN }),
+  if (!forceRefresh && now < failedUntil) return {};
+  if (inflightExchange) return inflightExchange;
+
+  inflightExchange = (async (): Promise<Record<string, string>> => {
+    try {
+      const res = await fetch(
+        `https://firebaseappcheck.googleapis.com/v1/projects/${firebaseConfig.projectId}/apps/${firebaseConfig.appId}:exchangeDebugToken?key=${firebaseConfig.apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ debug_token: DEBUG_TOKEN }),
+        }
+      );
+      if (!res.ok) {
+        console.warn("[appcheck] debug token exchange failed:", res.status);
+        failedUntil = Date.now() + 30_000;
+        return {};
       }
-    );
-    if (!res.ok) {
-      console.warn("[appcheck] debug token exchange failed:", res.status);
+      const data = await res.json();
+      // ttl arrives like "3600s"
+      const ttlMs = (parseInt(data.ttl, 10) || 1800) * 1000;
+      cachedToken = { token: data.token, expiresAt: Date.now() + ttlMs };
+      failedUntil = 0;
+      return { "X-Firebase-AppCheck": data.token };
+    } catch (err) {
+      console.warn("[appcheck] token unavailable:", (err as any)?.message || err);
+      failedUntil = Date.now() + 30_000;
       return {};
+    } finally {
+      inflightExchange = null;
     }
-    const data = await res.json();
-    // ttl arrives like "3600s"
-    const ttlMs = (parseInt(data.ttl, 10) || 1800) * 1000;
-    cachedToken = { token: data.token, expiresAt: now + ttlMs };
-    return { "X-Firebase-AppCheck": data.token };
-  } catch (err) {
-    console.warn("[appcheck] token unavailable:", (err as any)?.message || err);
-    return {};
-  }
+  })();
+  return inflightExchange;
 }

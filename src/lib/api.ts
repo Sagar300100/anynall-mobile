@@ -98,17 +98,11 @@ export function mapShowToUI(show: any): ShowData {
   };
 }
 
-async function throwIfNotOk(res: Response, url: string) {
-  if (!res.ok) {
-    let msg = `${res.status}`;
-    try {
-      const t = await res.text();
-      if (t) msg = `${res.status} ${t}`;
-    } catch {}
-    throw new Error(`HTTP ${msg} for ${url}`);
-  }
-  return res;
-}
+/** No request may hang forever: on a congested mobile link a half-open fetch
+ *  left every flow built on j() — the bid gate, checkout, go-live — stuck in a
+ *  busy state with no error. Long enough for a slow cold start, short enough
+ *  that the user gets an actionable failure instead of a frozen button. */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 async function authHeaders(): Promise<Record<string, string>> {
   const u = auth.currentUser;
@@ -136,15 +130,23 @@ export async function j<T = any>(
     needsAuth ? authHeaders() : Promise.resolve({} as Record<string, string>),
   ]);
   const tHeaders = Date.now();
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...appCheck,
-      ...((init?.headers as Record<string, string>) || {}),
-      ...authed,
-    },
-  });
+
+  const doFetch = (appCheckHeaders: Record<string, string>) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    return fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...appCheckHeaders,
+        ...((init?.headers as Record<string, string>) || {}),
+        ...authed,
+      },
+    }).finally(() => clearTimeout(timer));
+  };
+
+  let res = await doFetch(appCheck);
   // Free clock sync: every response carries a `Date` header, so the auction
   // countdown can run on the server's clock instead of the device's.
   noteServerDate(res.headers.get("date"), Date.now() - tHeaders);
@@ -153,7 +155,30 @@ export async function j<T = any>(
       `[api] ${path} headers=${tHeaders - t0}ms fetch=${Date.now() - tHeaders}ms`
     );
   }
-  await throwIfNotOk(res, url);
+
+  if (!res.ok) {
+    let bodyText = "";
+    try {
+      bodyText = await res.text();
+    } catch {}
+    // Self-heal on a stale/expired App Check token, mirroring the web client:
+    // force a fresh token and retry ONCE. Without this a transient exchange
+    // failure surfaced as a hard error on an otherwise healthy request.
+    if (
+      res.status === 401 &&
+      /APP_CHECK_(REQUIRED|INVALID)/.test(bodyText)
+    ) {
+      const fresh = await getAppCheckHeader(/*forceRefresh*/ true);
+      if (fresh["X-Firebase-AppCheck"]) {
+        res = await doFetch(fresh);
+        if (res.ok) return (await res.json()) as T;
+        try {
+          bodyText = await res.text();
+        } catch {}
+      }
+    }
+    throw new Error(`HTTP ${res.status}${bodyText ? ` ${bodyText}` : ""} for ${url}`);
+  }
   return (await res.json()) as T;
 }
 
