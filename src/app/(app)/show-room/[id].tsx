@@ -217,6 +217,15 @@ export default function ShowRoomScreen() {
     return engineSubscribe(showId, {
       onState: (list) => list.forEach(mergeOne),
       onBid: mergeOne,
+      // The engine's ended frame carries no view or version — flip the lot
+      // out of 'open' so the seller's panel transitions the moment the clock
+      // hits zero; the settled Firestore doc replaces this moments later.
+      onEnded: (auctionId) =>
+        setAuctions((prev) =>
+          prev.map((held) =>
+            held.id === auctionId && held.status === 'open' ? { ...held, status: 'ended' } : held
+          )
+        ),
       onError: () => {
         /* display-only here: the seller does not bid, and the Firestore
            listener above remains the source of truth. */
