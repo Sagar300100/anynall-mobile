@@ -14,8 +14,9 @@
 // a private profile shows its identity and counts to everyone, but the
 // content below (people lists, about, shows) only to approved followers or
 // the owner. The Follow button cycles Follow → Requested (tap cancels the
-// request) → Following (tap unfollows). Messaging goes through a message
-// request the other person accepts first (see lib/conversations.ts).
+// request) → Following (tap unfollows). Messaging is NOT gated by privacy —
+// conversations open directly on both clients (the old mobile-only message
+// request gate was removed; see lib/conversations.ts).
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';

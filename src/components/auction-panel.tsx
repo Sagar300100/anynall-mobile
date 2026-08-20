@@ -148,7 +148,15 @@ export function AuctionPanel({
   // busy flag keeps it to one call in flight, never the display tick's rate.
   // An anti-snipe extension flips `dueToFinalize` back off and clears the
   // interval, as does settlement, an auction change, or unmount.
-  const dueToFinalize = open && msLeft <= 0;
+  //
+  // 'ended' is INCLUDED deliberately: it is a LOCAL-ONLY status minted by the
+  // engine's early "ended" broadcast (Firestore never writes it) — the doc is
+  // still 'open' server-side until a finalize/settle lands, and the engine
+  // sends the frame BEFORE its own settle attempt. Gating on 'open' alone made
+  // the ended frame silence this retry loop, reintroducing the 60s-sweep wait
+  // whenever the engine's settle path failed. The loop stops when Firestore
+  // delivers a REAL settled status (awaiting_winner_payment / unsold / …).
+  const dueToFinalize = (open || auction.status === 'ended') && msLeft <= 0;
   useEffect(() => {
     if (!dueToFinalize) return;
     let busy = false;

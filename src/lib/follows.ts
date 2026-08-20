@@ -85,6 +85,11 @@ export async function followUser(targetUid: string): Promise<FollowStatus> {
 
   const prof = await getPublicProfile(targetUid);
   if (prof?.isPrivate) {
+    // ALREADY FOLLOWING wins over everything: a follower who taps Follow
+    // before the button state resolves must not file a request — the target
+    // could never accept it (the accept batch would try to create a follows
+    // row that already exists, which rules treat as a denied update).
+    if (await isFollowing(targetUid)) return 'following';
     if (await hasRequested(targetUid)) return 'requested';
     await setDoc(doc(db, 'followRequests', requestDocId(me.uid, targetUid)), {
       requesterId: me.uid,
@@ -109,15 +114,19 @@ export async function followUser(targetUid: string): Promise<FollowStatus> {
 export async function unfollowUser(targetUid: string): Promise<void> {
   const me = auth.currentUser;
   if (!me || !targetUid) return;
-  // Idempotent — deleting a non-existent doc is fine.
-  await deleteDoc(doc(db, 'follows', followDocId(me.uid, targetUid))).catch(() => {});
+  // Idempotent for the normal case (deleting a non-existent doc succeeds) —
+  // but real failures MUST throw: the callers roll their optimistic UI back
+  // in a catch, and a swallowed rejection here left the screen confirming an
+  // unfollow the server never saw.
+  await deleteDoc(doc(db, 'follows', followDocId(me.uid, targetUid)));
 }
 
-/** Cancel my pending follow request to target. Idempotent. */
+/** Cancel my pending follow request to target. Real failures throw (callers
+ *  roll back optimistic state); deleting a non-existent request succeeds. */
 export async function cancelFollowRequest(targetUid: string): Promise<void> {
   const me = auth.currentUser;
   if (!me || !targetUid) return;
-  await deleteDoc(doc(db, 'followRequests', requestDocId(me.uid, targetUid))).catch(() => {});
+  await deleteDoc(doc(db, 'followRequests', requestDocId(me.uid, targetUid)));
 }
 
 /** Incoming follow requests for the signed-in user (people awaiting approval). */
@@ -146,8 +155,19 @@ export async function listIncomingRequests(): Promise<PersonRef[]> {
 export async function acceptFollowRequest(requesterUid: string): Promise<void> {
   const me = auth.currentUser;
   if (!me || !requesterUid) return;
+  const followRef = doc(db, 'follows', followDocId(requesterUid, me.uid));
+  // A request can exist for someone who ALREADY follows (filed from a stale
+  // button, or created before the account went private). The batch's set()
+  // would then be an update on the existing row — which rules deny, failing
+  // the whole accept forever. An existing row means there is nothing to
+  // grant: just clear the request.
+  const existing = await getDoc(followRef).catch(() => null);
+  if (existing?.exists()) {
+    await deleteDoc(doc(db, 'followRequests', requestDocId(requesterUid, me.uid)));
+    return;
+  }
   const batch = writeBatch(db);
-  batch.set(doc(db, 'follows', followDocId(requesterUid, me.uid)), {
+  batch.set(followRef, {
     followerId: requesterUid,
     targetId: me.uid,
     createdAt: serverTimestamp(),

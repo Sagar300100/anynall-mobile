@@ -62,6 +62,17 @@ function toPaise(rupees: string): number | null {
   return Number.isSafeInteger(paise) ? paise : null;
 }
 
+/** Like toPaise but ZERO is legal — the server accepts shippingFee 0, and a
+ *  seller typing "0" under Flat rate must not be blocked with a max-fee error
+ *  (they may not spot the separate Free-shipping radio). */
+function toPaiseOrZero(rupees: string): number | null {
+  if (!rupees.trim()) return null;
+  const n = Number(rupees.replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(n) || n < 0) return null;
+  const paise = Math.round(n * 100);
+  return Number.isSafeInteger(paise) ? paise : null;
+}
+
 /** The two shipping outcomes the order maths can honour today: the seller
  *  absorbs delivery, or the buyer pays a flat fee. Same set as CreateListing. */
 type ShippingProfile = 'free' | 'flat';
@@ -108,7 +119,7 @@ export default function NewProductScreen() {
   const paise = toPaise(price);
   const stockN = Number(stock);
   const giveaway = kind === 'giveaway';
-  const feePaise = toPaise(fee);
+  const feePaise = toPaiseOrZero(fee);
   const costPaise = toPaise(cost);
   const weightN = weight.trim() ? Number(weight) : null;
   const dims = [dimL, dimB, dimH];

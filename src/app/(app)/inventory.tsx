@@ -185,9 +185,12 @@ export default function InventoryScreen() {
           </View>
         ) : (
           items.map((p) => {
-            // Remaining = stock − sold, the same arithmetic the web hub and
-            // the purchase paths use. Total stock alone overstated what was
-            // actually left to sell.
+            // Remaining = stock − sold. Total stock alone overstated what was
+            // left to sell. NOTE: the purchase path additionally subtracts
+            // active buy-now reservations, but GET /products/mine doesn't
+            // return them — so this can briefly overstate by units sitting in
+            // a 15-min reservation. Exact parity needs the API to expose
+            // reserved/reservedUntil.
             const left = Math.max(0, p.stock - p.sold);
             const out = left <= 0;
             return (
@@ -470,7 +473,12 @@ function EditSheet({
                 size too.
               </Note>
             ) : (
-              <Hint>Couriers bill on the greater of weight and box size (L×B×H ÷ 5000).</Hint>
+              <Hint>
+                Couriers bill on the greater of weight and box size (L×B×H ÷ 5000).
+                {item.weightGrams != null || item.dimensionsCm
+                  ? ' Leaving weight or dimensions blank keeps the saved values — they can be changed but not removed.'
+                  : ''}
+              </Hint>
             )}
 
             <Text style={[styles.groupLabel, { color: c.textSecondary }]}>Condition</Text>
