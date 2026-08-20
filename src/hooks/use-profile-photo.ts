@@ -7,6 +7,7 @@
 // same photoURL field the web app and conversations already read. The
 // previous photo stays visible until a replacement upload fully succeeds.
 import { updateProfile } from 'firebase/auth';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import {
   deleteObject,
   getDownloadURL,
@@ -18,7 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { AccessibilityInfo, Alert, Linking } from 'react-native';
 
-import { auth, storage } from '@/lib/firebase';
+import { auth, db, storage } from '@/lib/firebase';
 import { useSession } from '@/lib/session';
 
 /** Longest edge of the stored avatar; uploads stay small and square. */
@@ -70,6 +71,25 @@ async function processImage(asset: ImagePicker.ImagePickerAsset): Promise<string
   return saved.uri;
 }
 
+/**
+ * Mirror the new photoURL onto publicProfiles/{uid} right away. Other users
+ * read the avatar from there (profiles, follow requests, DM search) — without
+ * this, a change stayed invisible to everyone else until the next sign-in ran
+ * ensureUserProfile. Best-effort: the auth record is already updated, and the
+ * next sign-in re-mirrors, so a miss here self-heals. Never throws.
+ */
+async function mirrorPhotoToPublicProfile(uid: string, photoURL: string) {
+  try {
+    await setDoc(
+      doc(db, 'publicProfiles', uid),
+      { uid, photoURL, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+  } catch {
+    // Non-fatal — resynced by ensureUserProfile on the next sign-in.
+  }
+}
+
 /** Best-effort delete of a previous avatar object we own. Never throws. */
 async function deleteOwnedAvatar(url: string | null) {
   // Google-account photos etc. live outside our bucket — leave those alone.
@@ -119,6 +139,7 @@ export function useProfilePhoto() {
         });
         const url = await getDownloadURL(objectRef);
         await updateProfile(current, { photoURL: url });
+        await mirrorPhotoToPublicProfile(current.uid, url);
         setOverride(url);
         void deleteOwnedAvatar(previousURL);
         AccessibilityInfo.announceForAccessibility('Profile photo updated');
@@ -161,6 +182,7 @@ export function useProfilePhoto() {
     if (!current || !photoURL) return;
     try {
       await updateProfile(current, { photoURL: null });
+      await mirrorPhotoToPublicProfile(current.uid, '');
       void deleteOwnedAvatar(photoURL);
       setOverride(null);
       AccessibilityInfo.announceForAccessibility('Profile photo removed');

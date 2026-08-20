@@ -10,7 +10,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MenuGroup, MenuRow } from '@/components/account-menu';
@@ -20,6 +29,7 @@ import { Fonts, Spacing } from '@/constants/theme';
 import { exportMyData, hasPasswordProvider, isTwoFactorEnrolled } from '@/lib/account';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { useSession } from '@/lib/session';
+import { getPublicProfile, setAccountPrivacy } from '@/lib/users';
 
 export default function SettingsScreen() {
   const c = useBrandColors();
@@ -35,6 +45,44 @@ export default function SettingsScreen() {
       setTwoFactorOn(isTwoFactorEnrolled());
     }, [])
   );
+
+  // Private account (Instagram-style). null = still loading the current value
+  // from publicProfiles/{uid} — the switch is disabled until it arrives, so a
+  // toggle can never fire against an unknown baseline.
+  const [privateAcct, setPrivateAcct] = useState<boolean | null>(null);
+  const [privacyBusy, setPrivacyBusy] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
+      let cancelled = false;
+      (async () => {
+        const p = await getPublicProfile(user.uid);
+        if (!cancelled) setPrivateAcct(p?.isPrivate === true);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [user])
+  );
+
+  async function togglePrivacy(next: boolean) {
+    if (privacyBusy || privateAcct === null) return;
+    const prev = privateAcct;
+    setPrivateAcct(next); // optimistic; rolled back below
+    setPrivacyBusy(true);
+    try {
+      await setAccountPrivacy(next);
+    } catch {
+      setPrivateAcct(prev);
+      Alert.alert(
+        'Couldn’t update privacy',
+        'Your account privacy wasn’t changed. Please try again.'
+      );
+    } finally {
+      setPrivacyBusy(false);
+    }
+  }
 
   async function exportData() {
     setExporting(true);
@@ -161,6 +209,27 @@ export default function SettingsScreen() {
 
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>PRIVACY & DATA</Text>
           <MenuGroup>
+            {/* Toggle row, not a MenuRow — it flips a value in place rather
+                than navigating. Writes publicProfiles/{uid}.isPrivate, the
+                same field the web client and firestore.rules gate follows on. */}
+            <View style={styles.infoRow}>
+              <Ionicons name="lock-closed-outline" size={22} color={c.primary} />
+              <View style={styles.infoText}>
+                <Text style={[styles.infoLabel, { color: c.text }]}>Private account</Text>
+                <Text style={[styles.infoValue, { color: c.textSecondary }]}>
+                  Only approved followers can see your shows and activity — new
+                  followers need your approval. Your name and photo stay findable.
+                </Text>
+              </View>
+              <Switch
+                value={privateAcct === true}
+                onValueChange={togglePrivacy}
+                disabled={privateAcct === null || privacyBusy}
+                accessibilityLabel="Private account"
+                trackColor={{ false: 'rgba(120,150,210,0.35)', true: c.primary }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
             <MenuRow
               icon="download-outline"
               label="Export my data"

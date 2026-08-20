@@ -10,9 +10,11 @@
 //   follows               — aggregation counts + Instagram-style status
 //   shows                 — the seller's shows, filtered by ownerUid
 //
-// PRODUCT DECISION: there are no private accounts — every profile is fully
-// visible and anyone can follow anyone (buyer or seller). The Follow button
-// has two states: Follow / Following. Messaging goes through a message
+// Private accounts (Instagram-style, same as the web + firestore.rules):
+// a private profile shows its identity and counts to everyone, but the
+// content below (people lists, about, shows) only to approved followers or
+// the owner. The Follow button cycles Follow → Requested (tap cancels the
+// request) → Following (tap unfollows). Messaging goes through a message
 // request the other person accepts first (see lib/conversations.ts).
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
@@ -36,12 +38,13 @@ import type { ShowData } from '@/lib/api';
 import { useAuthGate } from '@/lib/auth-gate';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
 import {
+  cancelFollowRequest,
   followUser,
   getFollowCounts,
   getFollowStatus,
   listFollowersOf,
   listFollowingOf,
-  unfollow,
+  unfollowUser,
   type FollowStatus,
   type PersonRef,
 } from '@/lib/follows';
@@ -103,14 +106,18 @@ export default function PublicProfileScreen() {
     setCounts(cts);
     setStatus(st);
     setLoading(false);
-    // Seller shows load after the header is already on screen.
-    if (p.isSeller) {
+    // Seller shows load after the header is already on screen — but never for
+    // a private profile the viewer isn't an approved follower of.
+    const canSee = p.uid === user?.uid || !p.isPrivate || st === 'following';
+    if (p.isSeller && canSee) {
       try {
         const all = await fsFetchShows();
         setShows(all.filter((s) => s.ownerUid === uid));
       } catch {
         /* shows stay empty — the section simply doesn't render */
       }
+    } else {
+      setShows([]);
     }
   }, [uidParam, username, user]);
 
@@ -128,14 +135,25 @@ export default function PublicProfileScreen() {
       setError(null);
       try {
         if (status === 'following') {
-          await unfollow(profile.uid);
+          await unfollowUser(profile.uid);
           setStatus('none');
           setCounts((v) => ({ ...v, followers: Math.max(0, v.followers - 1) }));
+        } else if (status === 'requested') {
+          // Tapping "Requested" withdraws the pending request.
+          await cancelFollowRequest(profile.uid);
+          setStatus('none');
         } else {
-          await followUser(profile.uid);
-          setStatus('following');
-          setCounts((v) => ({ ...v, followers: v.followers + 1 }));
+          // Private target → the lib files a follow request and returns
+          // 'requested'; public target → follows immediately.
+          const next = await followUser(profile.uid);
+          setStatus(next);
+          if (next === 'following')
+            setCounts((v) => ({ ...v, followers: v.followers + 1 }));
         }
+        // A private profile's content gate may have flipped — drop any open
+        // people list rather than showing a stale one.
+        setPeopleTab(null);
+        setPeople(null);
       } catch {
         setError('Couldn’t update follow — please try again.');
       } finally {
@@ -181,6 +199,13 @@ export default function PublicProfileScreen() {
 
   const liveShows = shows.filter((s) => s.isLive);
   const upcomingShows = shows.filter((s) => !s.isLive);
+
+  // Instagram gating: a private profile shows identity + counts to everyone,
+  // but content (people lists, about, shows) only to approved followers.
+  const canSeeContent = isOwner || !profile?.isPrivate || status === 'following';
+  // follows reads are signed-in-only, so a guest's counts aggregation fails
+  // and would silently render 0 — show "—" instead of a made-up number.
+  const countsReadable = !!user;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
@@ -237,15 +262,33 @@ export default function PublicProfileScreen() {
                     <Text style={[styles.roleBadgeText, { color: c.primary }]}>Seller</Text>
                   </View>
                 )}
+                {profile.isPrivate && (
+                  <View style={[styles.roleBadge, { borderColor: c.borderStrong }]}>
+                    <Ionicons name="lock-closed-outline" size={11} color={c.textSecondary} />
+                    <Text style={[styles.roleBadgeText, { color: c.textSecondary }]}>Private</Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
 
           {/* ── Counts ── */}
           <View style={styles.counts}>
-            <CountCell label="Followers" value={counts.followers} onPress={() => openPeople('followers')} active={peopleTab === 'followers'} />
+            <CountCell
+              label="Followers"
+              value={countsReadable ? counts.followers : '—'}
+              onPress={() => openPeople('followers')}
+              active={peopleTab === 'followers'}
+              disabled={!countsReadable || !canSeeContent}
+            />
             <View style={[styles.countDivider, { backgroundColor: c.border }]} />
-            <CountCell label="Following" value={counts.following} onPress={() => openPeople('following')} active={peopleTab === 'following'} />
+            <CountCell
+              label="Following"
+              value={countsReadable ? counts.following : '—'}
+              onPress={() => openPeople('following')}
+              active={peopleTab === 'following'}
+              disabled={!countsReadable || !canSeeContent}
+            />
           </View>
 
           {/* ── Actions ── */}
@@ -255,7 +298,13 @@ export default function PublicProfileScreen() {
                 onPress={handleFollowPress}
                 disabled={followBusy}
                 accessibilityRole="button"
-                accessibilityLabel={status === 'following' ? 'Unfollow' : 'Follow'}
+                accessibilityLabel={
+                  status === 'following'
+                    ? 'Unfollow'
+                    : status === 'requested'
+                      ? 'Cancel follow request'
+                      : 'Follow'
+                }
                 accessibilityState={{ disabled: followBusy, selected: status !== 'none' }}
                 style={({ pressed }) => [
                   styles.followBtn,
@@ -271,7 +320,11 @@ export default function PublicProfileScreen() {
                   <Text
                     style={[styles.followBtnText, { color: status === 'none' ? c.ctaText : c.text }]}
                   >
-                    {status === 'following' ? 'Following' : 'Follow'}
+                    {status === 'following'
+                      ? 'Following'
+                      : status === 'requested'
+                        ? 'Requested'
+                        : 'Follow'}
                   </Text>
                 )}
               </Pressable>
@@ -296,6 +349,19 @@ export default function PublicProfileScreen() {
 
           {!!error && <Text style={[styles.errorText, { color: c.danger }]}>{error}</Text>}
 
+          {!canSeeContent ? (
+            /* ── Private gate — identity/counts above stay visible, the
+                  content below requires an approved follow. ── */
+            <View
+              style={[styles.card, styles.lockCard, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+            >
+              <Ionicons name="lock-closed-outline" size={26} color={c.textSecondary} />
+              <Text style={[styles.lockTitle, { color: c.text }]}>This account is private</Text>
+              <Text style={[styles.body, styles.lockBody, { color: c.textSecondary }]}>
+                Follow {profile.displayName} to see their shows and activity.
+              </Text>
+            </View>
+          ) : (
           <>
               {/* ── People list (lazy) ── */}
               {peopleTab && (
@@ -398,6 +464,7 @@ export default function PublicProfileScreen() {
                 </>
               )}
           </>
+          )}
         </ScrollView>
       ) : null}
     </SafeAreaView>
@@ -409,20 +476,25 @@ function CountCell({
   value,
   onPress,
   active,
+  disabled = false,
 }: {
   label: string;
-  value: number;
+  /** "—" when the viewer can't read counts (guests — follows is signed-in-only). */
+  value: number | string;
   onPress: () => void;
   active: boolean;
+  /** Guests can't read the lists, and private profiles hide them. */
+  disabled?: boolean;
 }) {
   const c = useBrandColors();
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={`${value} ${label}`}
-      accessibilityState={{ expanded: active }}
-      style={({ pressed }) => [styles.countCell, pressed && { opacity: 0.7 }]}
+      accessibilityState={{ expanded: active, disabled }}
+      style={({ pressed }) => [styles.countCell, pressed && !disabled && { opacity: 0.7 }]}
     >
       <Text style={[styles.countValue, { color: c.text }]}>{value}</Text>
       <Text style={[styles.countLabel, { color: active ? c.primary : c.textSecondary }]}>
@@ -497,6 +569,9 @@ const styles = StyleSheet.create({
 
   card: { borderWidth: 1, borderRadius: 16, padding: Spacing.three + Spacing.one, gap: Spacing.two },
   cardTitle: { fontSize: 15.5, fontFamily: Fonts.sansSemiBold },
+  lockCard: { alignItems: 'center', paddingVertical: Spacing.five, gap: Spacing.one },
+  lockTitle: { fontSize: 15.5, fontFamily: Fonts.sansSemiBold, marginTop: Spacing.one },
+  lockBody: { textAlign: 'center' },
   peopleLoading: { paddingVertical: Spacing.three },
   personRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two + Spacing.one, minHeight: 52 },
   personAvatar: { width: 36, height: 36, borderRadius: 18 },

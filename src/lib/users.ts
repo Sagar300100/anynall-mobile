@@ -31,6 +31,8 @@ export interface PublicProfile {
   usernameLower: string;
   photoURL: string;
   bio: string;
+  /** Instagram-style privacy: private accounts require a follow request. */
+  isPrivate: boolean;
   /** Mirrored from users/{uid} — drives the seller vs buyer profile layout. */
   isSeller: boolean;
   /** Interest categories (mirrored on save) — shown in About. */
@@ -47,6 +49,7 @@ function toPublicProfile(uid: string, d: any): PublicProfile {
     usernameLower: d?.usernameLower || '',
     photoURL: d?.photoURL || '',
     bio: d?.bio || '',
+    isPrivate: d?.isPrivate === true,
     isSeller: d?.isSeller === true,
     interests: Array.isArray(d?.interests)
       ? d.interests.filter((x: any) => typeof x === 'string')
@@ -103,6 +106,8 @@ export async function ensureUserProfile(): Promise<void> {
     // (users/{uid} itself is owner-read-only).
     isSeller,
     interests,
+    // NOTE: deliberately NO `isPrivate` here — this merge must never clobber
+    // a privacy choice made via setAccountPrivacy with a default.
     updatedAt: serverTimestamp(),
   };
   if (!existing || !existing.exists()) payload.createdAt = serverTimestamp();
@@ -112,6 +117,17 @@ export async function ensureUserProfile(): Promise<void> {
   } catch {
     /* non-fatal — retried on next sign-in */
   }
+}
+
+/** Toggle Instagram-style account privacy on the caller's own public profile. */
+export async function setAccountPrivacy(isPrivate: boolean): Promise<void> {
+  const u = auth.currentUser;
+  if (!u) throw new Error('Sign in first.');
+  await setDoc(
+    doc(db, 'publicProfiles', u.uid),
+    { uid: u.uid, isPrivate, updatedAt: serverTimestamp() },
+    { merge: true }
+  );
 }
 
 /**
@@ -172,8 +188,11 @@ export async function searchUsers(qStr: string, max = 12): Promise<PublicProfile
 
   const run = async (field: 'usernameLower' | 'displayNameLower') => {
     try {
+      // [term, term + \uf8ff] spans every string PREFIXED by the term. Written
+      // as an escape, not a literal char — the invisible literal here was
+      // repeatedly misread as endAt(term), i.e. an exact-match-only bug.
       const snap = await getDocs(
-        query(col, orderBy(field), startAt(term), endAt(term + ''), limit(max))
+        query(col, orderBy(field), startAt(term), endAt(term + '\uf8ff'), limit(max))
       );
       snap.forEach((s) => {
         if (s.id === me) return; // never show the current user

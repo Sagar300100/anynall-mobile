@@ -48,7 +48,13 @@ import { useScreenFocused } from '@/hooks/use-screen-focused';
 import { useAuthGate } from '@/lib/auth-gate';
 import { sendMessage, subscribeMessages, type ChatDoc } from '@/lib/chat';
 import { db } from '@/lib/firebase';
-import { follow, isFollowing, unfollow } from '@/lib/follows';
+import {
+  cancelFollowRequest,
+  followUser,
+  getFollowStatus,
+  unfollowUser,
+  type FollowStatus,
+} from '@/lib/follows';
 import {
   canBuyFromShow,
   formatPaise,
@@ -118,8 +124,9 @@ export default function LiveRoomScreen() {
   // Buy Now: which product's sheet is open, and the created order in checkout.
   const [buyingProductId, setBuyingProductId] = useState<string | null>(null);
   const [buyOrder, setBuyOrder] = useState<BuyNowOrder | null>(null);
-  // Follow + the right rail's sheets.
-  const [following, setFollowing] = useState<boolean | null>(null);
+  // Follow + the right rail's sheets. null = relationship not loaded yet;
+  // 'requested' = pending follow request to a private seller.
+  const [followState, setFollowState] = useState<FollowStatus | null>(null);
   const [followBusy, setFollowBusy] = useState(false);
   const [rail, setRail] = useState<RailSheet | null>(null);
   // More → Hide chat. Local only; the messages keep streaming underneath.
@@ -213,8 +220,8 @@ export default function LiveRoomScreen() {
     if (!sellerUid) return;
     let cancelled = false;
     (async () => {
-      const state = await isFollowing(sellerUid);
-      if (!cancelled) setFollowing(state);
+      const state = await getFollowStatus(sellerUid);
+      if (!cancelled) setFollowState(state);
     })();
     return () => {
       cancelled = true;
@@ -223,13 +230,22 @@ export default function LiveRoomScreen() {
 
   async function toggleFollow() {
     if (!sellerUid || followBusy) return;
-    const next = !following;
+    const prev = followState ?? 'none';
     setFollowBusy(true);
-    setFollowing(next); // optimistic; rolled back below
     try {
-      await (next ? follow(sellerUid) : unfollow(sellerUid));
+      if (prev === 'following') {
+        setFollowState('none'); // optimistic; rolled back below
+        await unfollowUser(sellerUid);
+      } else if (prev === 'requested') {
+        setFollowState('none'); // optimistic; withdraws the pending request
+        await cancelFollowRequest(sellerUid);
+      } else {
+        // Not optimistic: a private seller yields 'requested', a public one
+        // 'following' — we only know which once the lib resolves.
+        setFollowState(await followUser(sellerUid));
+      }
     } catch {
-      setFollowing(!next);
+      setFollowState(prev);
       setNotice('Couldn’t update follow — please try again.');
     } finally {
       setFollowBusy(false);
@@ -322,6 +338,17 @@ export default function LiveRoomScreen() {
     return engineSubscribe(String(id), {
       onState: (list) => list.forEach(mergeOne),
       onBid: mergeOne,
+      // The engine says the lot closed the moment its clock hits zero — flip
+      // it out of 'open' now instead of after settle + Firestore fan-out. The
+      // frame carries no view or version, so only an auction still held as
+      // 'open' flips; the settled doc (winner, payment window) lands via the
+      // Firestore listener moments later and replaces this wholesale.
+      onEnded: (auctionId) =>
+        setAuctions((prev) =>
+          prev.map((held) =>
+            held.id === auctionId && held.status === 'open' ? { ...held, status: 'ended' } : held
+          )
+        ),
       // A rejection the socket path can't deliver as a promise failure —
       // "outbid", "too low" — still has to reach the bidder.
       onError: (err) => setNotice(err.message),
@@ -618,16 +645,29 @@ export default function LiveRoomScreen() {
                   onPress={toggleFollow}
                   disabled={followBusy}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: following === true }}
-                  accessibilityLabel={following ? 'Following' : 'Follow seller'}
+                  accessibilityState={{
+                    selected: followState === 'following' || followState === 'requested',
+                  }}
+                  accessibilityLabel={
+                    followState === 'following'
+                      ? 'Following'
+                      : followState === 'requested'
+                        ? 'Follow requested'
+                        : 'Follow seller'
+                  }
                   style={({ pressed }) => [
                     styles.followBtn,
-                    following && styles.followBtnOn,
+                    (followState === 'following' || followState === 'requested') &&
+                      styles.followBtnOn,
                     pressed && { opacity: 0.8 },
                   ]}
                 >
-                  <Text style={[styles.followText, following && styles.followTextOn]}>
-                    {following ? 'Following' : 'Follow'}
+                  <Text style={styles.followText}>
+                    {followState === 'following'
+                      ? 'Following'
+                      : followState === 'requested'
+                        ? 'Requested'
+                        : 'Follow'}
                   </Text>
                 </Pressable>
               )}

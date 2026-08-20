@@ -1,11 +1,21 @@
 // Inbox — real-time conversation list (conversations/ model, same as the web
 // Messages page). Tap a row to open the thread; unread counts come from the
-// conversation summary doc.
+// conversation summary doc. Incoming FOLLOW REQUESTS (private-account model,
+// web Messages "Requests" tab) sit above the conversations — fetched on
+// focus, no realtime listener needed.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GuestPrompt } from '@/components/guest-prompt';
@@ -13,6 +23,12 @@ import { DisplayText, useBrandColors } from '@/components/ui/form';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { Fonts, Spacing } from '@/constants/theme';
 import { subscribeMyConversations, type ConversationView } from '@/lib/conversations';
+import {
+  acceptFollowRequest,
+  declineFollowRequest,
+  listIncomingRequests,
+  type PersonRef,
+} from '@/lib/follows';
 import { useSession } from '@/lib/session';
 
 function timeAgo(millis?: number): string {
@@ -32,6 +48,12 @@ export default function InboxScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
+  // Incoming follow requests (private accounts). Refetched on every focus so
+  // a request accepted from the profile screen disappears on return; the uid
+  // marks which row's Accept/Decline is in flight.
+  const [requests, setRequests] = useState<PersonRef[]>([]);
+  const [requestBusy, setRequestBusy] = useState<string | null>(null);
+
   useEffect(() => {
     if (!user) return;
     const off = subscribeMyConversations(
@@ -46,6 +68,45 @@ export default function InboxScreen() {
     );
     return off;
   }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
+      let cancelled = false;
+      listIncomingRequests().then((list) => {
+        if (!cancelled) setRequests(list);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [user])
+  );
+
+  async function handleAccept(p: PersonRef) {
+    if (requestBusy) return;
+    setRequestBusy(p.uid);
+    try {
+      await acceptFollowRequest(p.uid);
+      setRequests((r) => r.filter((x) => x.uid !== p.uid));
+    } catch {
+      Alert.alert('Couldn’t accept the request', 'Please try again in a moment.');
+    } finally {
+      setRequestBusy(null);
+    }
+  }
+
+  async function handleDecline(p: PersonRef) {
+    if (requestBusy) return;
+    setRequestBusy(p.uid);
+    try {
+      await declineFollowRequest(p.uid);
+      setRequests((r) => r.filter((x) => x.uid !== p.uid));
+    } catch {
+      Alert.alert('Couldn’t decline the request', 'Please try again in a moment.');
+    } finally {
+      setRequestBusy(null);
+    }
+  }
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
@@ -89,7 +150,7 @@ export default function InboxScreen() {
           <Text style={[styles.emptyTitle, { color: c.text }]}>Couldn’t load messages</Text>
           <Text style={[styles.emptyText, { color: c.textSecondary }]}>{error}</Text>
         </View>
-      ) : loaded && convos.length === 0 ? (
+      ) : loaded && convos.length === 0 && requests.length === 0 ? (
         <View style={styles.center}>
           <Ionicons name="chatbubble-ellipses-outline" size={44} color={c.primary} />
           <Text style={[styles.emptyTitle, { color: c.text }]}>No conversations yet</Text>
@@ -102,6 +163,92 @@ export default function InboxScreen() {
           data={convos}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={
+            requests.length === 0 ? null : (
+              /* Follow requests — the web Messages page's "Requests" tab. */
+              <View>
+                <Text style={[styles.requestsLabel, { color: c.textSecondary }]}>
+                  FOLLOW REQUESTS ({requests.length})
+                </Text>
+                {requests.map((p) => (
+                  <View key={p.uid} style={[styles.row, { borderColor: c.border }]}>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: '/user/[username]',
+                          params: { username: p.username || p.uid, uid: p.uid },
+                        })
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${p.name}'s profile`}
+                      style={({ pressed }) => [styles.requestPerson, pressed && { opacity: 0.7 }]}
+                    >
+                      {p.photoURL ? (
+                        <Image
+                          source={{ uri: p.photoURL }}
+                          style={styles.requestAvatar}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View
+                          style={[styles.requestAvatar, { backgroundColor: c.backgroundSelected }]}
+                        >
+                          <Text style={[styles.avatarText, { color: c.primary }]}>
+                            {p.name.slice(0, 2).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1} style={[styles.name, { color: c.text }]}>
+                          {p.name}
+                        </Text>
+                        {!!p.username && (
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.requestHandle, { color: c.textFaint }]}
+                          >
+                            @{p.username}
+                          </Text>
+                        )}
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleAccept(p)}
+                      disabled={requestBusy !== null}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Accept follow request from ${p.name}`}
+                      accessibilityState={{ disabled: requestBusy !== null }}
+                      style={({ pressed }) => [
+                        styles.requestBtn,
+                        { backgroundColor: c.cta },
+                        (pressed || requestBusy === p.uid) && { opacity: 0.7 },
+                      ]}
+                    >
+                      {requestBusy === p.uid ? (
+                        <ActivityIndicator size="small" color={c.ctaText} />
+                      ) : (
+                        <Text style={[styles.requestBtnText, { color: c.ctaText }]}>Accept</Text>
+                      )}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleDecline(p)}
+                      disabled={requestBusy !== null}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Decline follow request from ${p.name}`}
+                      accessibilityState={{ disabled: requestBusy !== null }}
+                      style={({ pressed }) => [
+                        styles.requestBtn,
+                        { borderWidth: 1, borderColor: c.borderStrong },
+                        (pressed || requestBusy === p.uid) && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={[styles.requestBtnText, { color: c.text }]}>Decline</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )
+          }
           renderItem={({ item }) => (
             <Pressable
               onPress={() =>
@@ -133,12 +280,6 @@ export default function InboxScreen() {
                   <Text numberOfLines={1} style={[styles.name, { color: c.text }]}>
                     {item.otherName}
                   </Text>
-                  {/* Message request awaiting MY decision. */}
-                  {item.status === 'pending' && item.requesterId === item.otherUid && (
-                    <View style={[styles.requestBadge, { borderColor: 'rgba(77,184,255,0.4)' }]}>
-                      <Text style={[styles.requestBadgeText, { color: c.primary }]}>Request</Text>
-                    </View>
-                  )}
                   <Text style={[styles.time, { color: c.textFaint }]}>
                     {timeAgo(item.lastMessageAt)}
                   </Text>
@@ -213,14 +354,31 @@ const styles = StyleSheet.create({
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   name: { flex: 1, fontSize: 15, fontFamily: Fonts.sansSemiBold },
   time: { fontSize: 11, fontFamily: Fonts.mono },
-  requestBadge: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  requestBadgeText: { fontSize: 10, fontFamily: Fonts.sansMedium },
   preview: { fontSize: 13, fontFamily: Fonts.sans, marginTop: 2 },
+  requestsLabel: {
+    fontSize: 11.5,
+    fontFamily: Fonts.sansMedium,
+    letterSpacing: 1.1,
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.one,
+  },
+  requestPerson: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  requestAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  requestHandle: { fontSize: 12, fontFamily: Fonts.sans, marginTop: 1 },
+  requestBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  requestBtnText: { fontSize: 13, fontFamily: Fonts.sansSemiBold },
   badge: {
     minWidth: 20,
     height: 20,
