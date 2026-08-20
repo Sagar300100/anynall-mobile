@@ -37,10 +37,17 @@ export function BroadcastStage({
   showId,
   displayName,
   onError,
+  onFatal,
 }: {
   showId: string;
   displayName?: string;
   onError?: (message: string) => void;
+  /** The broadcast can never start (permissions denied, token/connect failed).
+   *  The server already opened the live gate when the host token was minted,
+   *  so the OWNER of this stage must close it (endStream) — otherwise the show
+   *  stays marked LIVE with viewers joining an empty room. MUST be
+   *  referentially stable, like every prop here. */
+  onFatal?: (message: string) => void;
 }) {
   const [grant, setGrant] = useState<StreamGrant | null>(null);
   const [status, setStatus] = useState<'starting' | 'ready' | 'denied' | 'failed'>('starting');
@@ -54,6 +61,9 @@ export function BroadcastStage({
       if (cancelled) return;
       if (!ok) {
         setStatus('denied');
+        onFatal?.(
+          'Camera and microphone access were denied — the show was taken off air. Enable them in Settings, then go live again.'
+        );
         return;
       }
       try {
@@ -65,15 +75,15 @@ export function BroadcastStage({
       } catch (err) {
         if (cancelled) return;
         setStatus('failed');
-        onError?.(streamErrorMessage(err));
+        onFatal?.(streamErrorMessage(err));
       }
     })();
     return () => {
       cancelled = true;
       AudioSession.stopAudioSession().catch(() => {});
     };
-    // displayName/onError deliberately excluded: re-minting a token because a
-    // label changed would drop the broadcast mid-show.
+    // displayName/onError/onFatal deliberately excluded: re-minting a token
+    // because a label changed would drop the broadcast mid-show.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showId]);
 
