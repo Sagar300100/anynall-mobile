@@ -32,8 +32,13 @@ import { SheetHeader, TONE } from '@/components/listing-parts';
 import { Fonts, Spacing } from '@/constants/theme';
 import { createAuction, formatPaise } from '@/lib/commerce';
 import {
+  attachProductToShow,
+  detachProductFromShow,
   getMyProducts,
   getSellingOrders,
+  pinProduct,
+  serverMessage,
+  unpinProduct,
   type SellerProduct,
   type SellingOrder,
 } from '@/lib/seller-hub';
@@ -88,8 +93,10 @@ export function LiveListings({
   const [sort, setSort] = useState<Sort>('newest');
   const [sortOpen, setSortOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [form, setForm] = useState<ListingMode | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState<string | null>(null);
 
   /** Put a lot up for bidding. Price/step/duration come from the listing's own
    *  auction prefill when it has one, otherwise from its price. */
@@ -118,6 +125,24 @@ export function LiveListings({
       );
     } finally {
       setStarting(null);
+    }
+  }
+
+  /** Buy Now spotlight. The server keeps ONE pinned product per show —
+   *  pinning unpins any sibling first, so this always replaces. The pinned
+   *  flag rides the products listener every buyer already has. */
+  async function togglePin(p: SellerProduct) {
+    if (pinBusy) return;
+    setPinBusy(p.id);
+    try {
+      if (p.pinned) await unpinProduct(p.id);
+      else await pinProduct(p.id);
+      // Reload rather than patch locally: pinning may have unpinned a sibling.
+      await load();
+    } catch (err) {
+      Alert.alert('Couldn’t update the spotlight', serverMessage(err, 'Please try again.'));
+    } finally {
+      setPinBusy(null);
     }
   }
 
@@ -316,9 +341,43 @@ export function LiveListings({
                     {p.temporary ? 'Temporary · ' : ''}
                     {tab === 'sold' ? `${p.sold} sold` : `${Math.max(0, p.stock - p.sold)} available`}
                     {p.auctionConfig?.suddenDeath ? ' · Sudden Death' : ''}
+                    {p.pinned ? ' · Spotlight' : ''}
                   </Text>
                 </View>
                 <Text style={styles.rowPrice}>{p.kind === 'giveaway' ? 'Free' : formatPaise(p.price)}</Text>
+
+                {/* Buy Now spotlight — POST /pin|/unpin. One per show: the
+                    server unpins any sibling, so pinning always replaces.
+                    Buyers' rooms feature the pinned item (pickSpotlight). */}
+                {p.kind === 'buy-it-now' && tab === 'buy-it-now' && (
+                  <Pressable
+                    onPress={() => togglePin(p)}
+                    disabled={pinBusy !== null}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: p.pinned }}
+                    accessibilityLabel={
+                      p.pinned
+                        ? `Remove ${p.title} from the Buy Now spotlight`
+                        : `Spotlight ${p.title} for Buy Now`
+                    }
+                    style={({ pressed }) => [
+                      styles.pinBtn,
+                      p.pinned && styles.pinBtnOn,
+                      pinBusy !== null && { opacity: 0.5 },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    {pinBusy === p.id ? (
+                      <ActivityIndicator color={p.pinned ? '#FFFFFF' : TONE.text} size="small" />
+                    ) : (
+                      <Ionicons
+                        name={p.pinned ? 'star' : 'star-outline'}
+                        size={18}
+                        color={p.pinned ? '#FFFFFF' : TONE.text}
+                      />
+                    )}
+                  </Pressable>
+                )}
 
                 {/* Starting a lot is what puts it in front of buyers — the
                     backend allows one open auction per show and re-validates
@@ -390,8 +449,25 @@ export function LiveListings({
               setForm('temporary');
             }}
           />
+          <CreateRow
+            icon="albums-outline"
+            title="Attach from Catalogue"
+            body="Add products you already own to this show."
+            onPress={() => {
+              setCreateOpen(false);
+              setAttachOpen(true);
+            }}
+          />
         </View>
       </Modal>
+
+      {/* ── Attach from catalogue ── */}
+      <AttachSheet
+        visible={attachOpen}
+        showId={showId}
+        onClose={() => setAttachOpen(false)}
+        onChanged={load}
+      />
 
       {/* ── Sort ── */}
       <Modal visible={sortOpen} transparent animationType="slide" onRequestClose={() => setSortOpen(false)}>
@@ -453,6 +529,180 @@ function Empty({ message }: { message: string }) {
       />
       <Text style={styles.emptyText}>{message}</Text>
     </View>
+  );
+}
+
+/** Attach/detach the seller's existing catalogue to THIS show.
+ *
+ *  Attachment is what makes a product purchasable in the room —
+ *  POST /api/products/:id/attach-show, and detach-show for the reverse
+ *  (back to unattached inventory; never deletes). Only ACTIVE products are
+ *  offered: the server refuses drafts and retired listings (409
+ *  PRODUCT_NOT_ACTIVE), so listing them here would only manufacture a
+ *  failure. Temporary listings belong to their own show and stay out too. */
+function AttachSheet({
+  visible,
+  showId,
+  onClose,
+  onChanged,
+}: {
+  visible: boolean;
+  showId: string;
+  onClose: () => void;
+  /** Fired after any attach/detach so the listings behind this sheet refresh. */
+  onChanged: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [items, setItems] = useState<SellerProduct[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await getMyProducts();
+      setItems(r.products);
+    } catch {
+      setItems([]);
+    }
+  }, []);
+
+  // Fresh read each open. The await defers the first setState out of the
+  // effect body itself, which the compiler's purity rules require.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve();
+      if (!cancelled) await load();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, load]);
+
+  const all = items ?? [];
+  const attached = all.filter((p) => p.showId === showId);
+  const attachable = all.filter(
+    (p) => p.showId !== showId && p.status === 'active' && !p.temporary
+  );
+  const hiddenCount = all.filter(
+    (p) => p.showId !== showId && (p.status !== 'active' || p.temporary)
+  ).length;
+
+  async function attach(p: SellerProduct) {
+    if (busy) return;
+    setBusy(p.id);
+    try {
+      await attachProductToShow(p.id, { showId });
+      await load();
+      onChanged();
+    } catch (err) {
+      Alert.alert(
+        'Couldn’t attach this product',
+        serverMessage(err, 'Please try again.')
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function detach(p: SellerProduct) {
+    if (busy) return;
+    setBusy(p.id);
+    try {
+      await detachProductFromShow(p.id);
+      await load();
+      onChanged();
+    } catch (err) {
+      Alert.alert(
+        'Couldn’t remove this product',
+        serverMessage(err, 'Please try again.')
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const row = (p: SellerProduct, inShow: boolean) => (
+    <View key={p.id} style={styles.attachRow}>
+      {p.thumbnail_url ? (
+        <Image source={{ uri: p.thumbnail_url }} style={styles.rowThumb} contentFit="cover" />
+      ) : (
+        <View style={styles.rowThumbEmpty}>
+          <Ionicons name="image-outline" size={20} color={TONE.faint} />
+        </View>
+      )}
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {p.title}
+        </Text>
+        <Text style={styles.rowMeta}>
+          {formatPaise(p.price)} · {Math.max(0, p.stock - p.sold)} available
+        </Text>
+      </View>
+      <Pressable
+        onPress={() => (inShow ? detach(p) : attach(p))}
+        disabled={busy !== null}
+        accessibilityRole="button"
+        accessibilityLabel={
+          inShow ? `Remove ${p.title} from this show` : `Attach ${p.title} to this show`
+        }
+        style={({ pressed }) => [
+          inShow ? styles.detachBtn : styles.attachBtn,
+          busy !== null && { opacity: 0.5 },
+          pressed && { opacity: 0.8 },
+        ]}
+      >
+        {busy === p.id ? (
+          <ActivityIndicator color={inShow ? TONE.text : '#FFFFFF'} size="small" />
+        ) : (
+          <Text style={inShow ? styles.detachText : styles.attachText}>
+            {inShow ? 'Remove' : 'Attach'}
+          </Text>
+        )}
+      </Pressable>
+    </View>
+  );
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={[styles.createSheet, { paddingBottom: insets.bottom + Spacing.three }]}>
+        <View style={styles.grabber} />
+        <Text style={styles.createTitle}>Attach from Catalogue</Text>
+
+        {items === null ? (
+          <ActivityIndicator color={TONE.primary} style={{ marginVertical: Spacing.four }} />
+        ) : (
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+            {attached.length > 0 && (
+              <>
+                <Text style={styles.attachSection}>In this show</Text>
+                {attached.map((p) => row(p, true))}
+              </>
+            )}
+
+            <Text style={styles.attachSection}>In your catalogue</Text>
+            {attachable.length === 0 ? (
+              <Text style={styles.rowMeta}>
+                {all.length === 0
+                  ? 'Your catalogue is empty. Create a listing first.'
+                  : 'Everything attachable is already in this show.'}
+              </Text>
+            ) : (
+              attachable.map((p) => row(p, false))
+            )}
+
+            {hiddenCount > 0 && (
+              <Text style={styles.attachFootnote}>
+                {hiddenCount} item{hiddenCount === 1 ? ' is' : 's are'} not shown — drafts,
+                retired and temporary listings can’t be attached. Publish them from Inventory
+                first.
+              </Text>
+            )}
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
   );
 }
 
@@ -591,6 +841,60 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   startText: { color: '#FFFFFF', fontSize: 14, fontFamily: Fonts.sansSemiBold },
+  pinBtn: {
+    width: 40,
+    height: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: TONE.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinBtnOn: { backgroundColor: TONE.primary, borderColor: TONE.primary },
+
+  attachRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    minHeight: 64,
+  },
+  attachSection: {
+    color: TONE.faint,
+    fontSize: 12,
+    fontFamily: Fonts.sansSemiBold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.one,
+  },
+  attachBtn: {
+    backgroundColor: TONE.primary,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    minHeight: 38,
+    minWidth: 78,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachText: { color: '#FFFFFF', fontSize: 14, fontFamily: Fonts.sansSemiBold },
+  detachBtn: {
+    borderWidth: 1,
+    borderColor: TONE.borderStrong,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    minHeight: 38,
+    minWidth: 78,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detachText: { color: TONE.text, fontSize: 14, fontFamily: Fonts.sansSemiBold },
+  attachFootnote: {
+    color: TONE.faint,
+    fontSize: 11.5,
+    fontFamily: Fonts.sans,
+    lineHeight: 16,
+    paddingTop: Spacing.two,
+  },
 
   empty: { alignItems: 'center', gap: Spacing.three, paddingTop: 70 },
   emptyMark: { width: 132, height: 132, opacity: 0.22 },

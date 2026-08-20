@@ -17,6 +17,14 @@ export interface AuctionConfig {
   suddenDeath: boolean;
 }
 
+/** Parcel size in centimetres. Couriers bill on the greater of actual and
+ *  volumetric weight ((L×B×H)/5000), so these are real billing inputs. */
+export interface ParcelDimensions {
+  length: number;
+  breadth: number;
+  height: number;
+}
+
 export interface SellerProduct {
   id: string;
   title: string;
@@ -28,13 +36,20 @@ export interface SellerProduct {
   thumbnail_url: string | null;
   images: string[];
   status: string;
+  description: string;
   category: string;
   condition: string;
   sku: string;
   hazmat: string;
+  /** Paise the buyer pays for delivery; 0 = the seller absorbs it. */
+  shippingFee: number;
+  weightGrams: number | null;
+  dimensionsCm: ParcelDimensions | null;
   showId: string | null;
   /** Show-scoped listing: never browsable in the marketplace. */
   temporary: boolean;
+  /** Buy Now spotlight — the server keeps at most one per show. */
+  pinned: boolean;
   auctionConfig: AuctionConfig | null;
   /** Seller-private margin data; absent unless they set one. */
   costPaise: number | null;
@@ -113,6 +128,9 @@ export const PRICE_MIN_PAISE = 100; // ₹1
 export const PRICE_MAX_PAISE = 500_000 * 100; // ₹5,00,000
 export const STOCK_MAX = 10_000;
 export const TITLE_MAX = 140;
+export const SHIPPING_MAX_PAISE = 5_000 * 100; // ₹5,000 — guards a typo
+export const WEIGHT_MAX_GRAMS = 30_000; // above 30kg is freight, not courier
+export const DIMENSION_MAX_CM = 150;
 
 export type ProductKind = 'buy-it-now' | 'auction' | 'giveaway';
 
@@ -120,6 +138,16 @@ export const PRODUCT_KINDS: { value: ProductKind; label: string; hint: string }[
   { value: 'buy-it-now', label: 'Buy Now', hint: 'Sells at a fixed price' },
   { value: 'auction', label: 'Auction', hint: 'Buyers bid during a live show' },
   { value: 'giveaway', label: 'Giveaway', hint: 'Free — no payment taken' },
+];
+
+/** Listing lifecycle, exactly the server's set: active = listed and buyable,
+ *  draft = saved but never sellable, inactive = retired. */
+export type ProductStatus = 'active' | 'draft' | 'inactive';
+
+export const PRODUCT_STATUSES: { value: ProductStatus; label: string; hint: string }[] = [
+  { value: 'active', label: 'Active', hint: 'Listed and buyable' },
+  { value: 'draft', label: 'Draft', hint: 'Saved — buyers never see it' },
+  { value: 'inactive', label: 'Inactive', hint: 'Retired from sale' },
 ];
 
 /** Listing condition. `new`/`pre-owned` cover plain goods; the graded values
@@ -188,6 +216,7 @@ export function createProduct(p: {
   /** Paise. 0 means the seller absorbs shipping. */
   shippingFee?: number;
   weightGrams?: number;
+  dimensionsCm?: ParcelDimensions | null;
 }) {
   return j<{ id: string }>(
     '/api/products',
@@ -202,6 +231,109 @@ export function createProduct(p: {
     },
     true
   );
+}
+
+/** Fields PATCH /api/products/:id accepts — the same parsers as create, so
+ *  everything is bounded server-side. The server refuses edits that would
+ *  oversell (stock below sold+reserved → 409 STOCK_BELOW_COMMITTED) and
+ *  refuses to draft/deactivate a product still attached to a show
+ *  (409 PRODUCT_IN_SHOW); surface those messages, never swallow them. */
+export interface ProductPatch {
+  title?: string;
+  /** Paise. */
+  price?: number;
+  stock?: number;
+  kind?: ProductKind;
+  thumbnail_url?: string;
+  description?: string;
+  category?: string;
+  condition?: string;
+  sku?: string;
+  hazmat?: string;
+  status?: ProductStatus;
+  /** Paise. */
+  shippingFee?: number;
+  weightGrams?: number;
+  dimensionsCm?: ParcelDimensions;
+}
+
+/** PATCH /api/products/:id — edit the seller's own listing. */
+export function updateProduct(id: string, patch: ProductPatch) {
+  return j<{ id: string }>(
+    `/api/products/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+    true
+  );
+}
+
+/** POST /api/products/:id/pin — Buy Now spotlight. The server unpins any
+ *  sibling in the same show first, so pinning always replaces. */
+export function pinProduct(id: string) {
+  return j<{ ok: boolean; productId: string; pinned: boolean }>(
+    `/api/products/${encodeURIComponent(id)}/pin`,
+    { method: 'POST' },
+    true
+  );
+}
+
+/** POST /api/products/:id/unpin — clear the spotlight. */
+export function unpinProduct(id: string) {
+  return j<{ ok: boolean; productId: string; pinned: boolean }>(
+    `/api/products/${encodeURIComponent(id)}/unpin`,
+    { method: 'POST' },
+    true
+  );
+}
+
+/** POST /api/products/:id/attach-show — make an existing catalogue product
+ *  purchasable in a show. Only ACTIVE products attach (the server 409s
+ *  PRODUCT_NOT_ACTIVE otherwise) and attaching always clears any stale pin.
+ *  Optional overrides ride along and are re-validated server-side. */
+export function attachProductToShow(
+  productId: string,
+  body: {
+    showId: string;
+    kind?: ProductKind;
+    /** Paise. */
+    price?: number;
+    stock?: number;
+    thumbnail_url?: string;
+    /** Paise. */
+    shippingFee?: number;
+    weightGrams?: number;
+    dimensionsCm?: ParcelDimensions | null;
+    auction?: {
+      startPrice: number;
+      bidStep?: number;
+      durationSeconds: number;
+      suddenDeath?: boolean;
+    } | null;
+  }
+) {
+  return j<{ ok: boolean; productId: string; showId: string }>(
+    `/api/products/${encodeURIComponent(productId)}/attach-show`,
+    { method: 'POST', body: JSON.stringify(body) },
+    true
+  );
+}
+
+/** POST /api/products/:id/detach-show — back to unattached inventory.
+ *  Never deletes the product. */
+export function detachProductFromShow(productId: string) {
+  return j<{ ok: boolean; productId: string }>(
+    `/api/products/${encodeURIComponent(productId)}/detach-show`,
+    { method: 'POST' },
+    true
+  );
+}
+
+/** The server's own sentence out of a thrown j() error, or the fallback.
+ *  j() throws `HTTP <status> <body>`; the body's `message` field is written
+ *  for humans, so it is what the UI should show. */
+export function serverMessage(err: unknown, fallback: string): string {
+  const text = err instanceof Error ? err.message : String(err);
+  const m = text.match(/"message"\s*:\s*"([^"]+)"/);
+  return m?.[1] ?? fallback;
 }
 
 /** Order status → how it should read and which tone it carries.

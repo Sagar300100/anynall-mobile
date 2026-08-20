@@ -237,17 +237,25 @@ function ClonePicker({
 
       let copied = 0;
       for (const p of items) {
+        // A clone must carry EVERY field the create route accepts — dropping
+        // shipping data here is how a copied listing silently ships free and
+        // books its courier at the 50g fallback weight.
         await createProduct({
           title: p.title,
           price: p.price,
           stock: p.stock,
           kind: p.kind as ProductKind,
+          description: p.description,
           category: p.category,
           condition: p.condition,
           sku: p.sku,
           hazmat: p.hazmat,
           images: p.images,
           thumbnail_url: p.thumbnail_url,
+          shippingFee: p.shippingFee,
+          weightGrams: p.weightGrams ?? undefined,
+          dimensionsCm: p.dimensionsCm ?? undefined,
+          costPaise: p.costPaise ?? undefined,
           showId,
           temporary: p.temporary,
           auction: p.auctionConfig,
