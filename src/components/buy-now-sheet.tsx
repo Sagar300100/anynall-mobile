@@ -4,7 +4,7 @@
 // order from the product doc; nothing here is trusted.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { FormError, PrimaryButton, useBrandColors } from '@/components/ui/form';
@@ -30,6 +30,41 @@ interface Props {
   onClose: () => void;
 }
 
+// ── Idempotency: ONE key per product purchase INTENT ────────────────────────
+//
+// Held at MODULE scope keyed by product id, so the key survives everything
+// short of a completed purchase:
+//   • a Razorpay dismiss re-entering this sheet — the parent only flips
+//     `visible` back on the SAME mount (live/[id].tsx: visible={!buyOrder});
+//   • closing the sheet entirely and tapping Buy again (a fresh mount).
+// The old effect re-minted on [visible, product.id], so the dismiss-and-retry
+// path handed the backend a NEW key while the buyer's FIRST reservation still
+// held the unit — a second reservation, and a self-inflicted SOLD_OUT on any
+// stock-1 item. With one key per intent, every retry replays the SAME
+// order/reservation server-side, and the checkout reopens on it.
+//
+// The intent ends only when success is KNOWN — and only the parent knows it,
+// in RazorpayCheckout's onSuccess (order creation is NOT success: a created
+// order with a dismissed checkout must still replay on retry). The parent
+// calls clearBuyNowIntent there, so the NEXT purchase of the same product
+// mints fresh.
+const intentKeys = new Map<string, string>();
+
+function intentKeyFor(productId: string): string {
+  let key = intentKeys.get(productId);
+  if (!key) {
+    key = newIdempotencyKey();
+    intentKeys.set(productId, key);
+  }
+  return key;
+}
+
+/** The purchase intent for this product completed (payment confirmed) — drop
+ *  its key so the buyer's next purchase of the product is a new intent. */
+export function clearBuyNowIntent(productId: string): void {
+  intentKeys.delete(productId);
+}
+
 export function BuyNowSheet({
   visible,
   product,
@@ -41,16 +76,6 @@ export function BuyNowSheet({
   const c = useBrandColors();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  // ONE idempotency key per purchase INTENT — minted fresh each time the
-  // sheet opens for a product, held for the whole open. A double-tap on Pay
-  // or an app-level retry of the same intent then replays the SAME order
-  // server-side instead of reserving a second unit; dismissing and reopening
-  // the sheet is a new intent and gets a new key.
-  const idemKey = useRef<string | null>(null);
-  useEffect(() => {
-    if (visible) idemKey.current = newIdempotencyKey();
-  }, [visible, product.id]);
 
   const shippingFee = product.shippingFee || 0;
   const total = (product.price || 0) + shippingFee;
@@ -64,8 +89,8 @@ export function BuyNowSheet({
     setBusy(true);
     setErr(null);
     try {
-      // Lazy fallback only for the impossible pay-before-open path.
-      const key = idemKey.current ?? (idemKey.current = newIdempotencyKey());
+      // The intent key: same product → same key until the purchase succeeds.
+      const key = intentKeyFor(product.id);
       const order = await createBuyNowOrder(product.id, address, key);
       onOrderCreated(order);
     } catch (e: any) {

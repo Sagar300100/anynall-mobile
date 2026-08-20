@@ -38,7 +38,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AuctionPanel } from '@/components/auction-panel';
-import { BuyNowSheet } from '@/components/buy-now-sheet';
+import { BuyNowSheet, clearBuyNowIntent } from '@/components/buy-now-sheet';
 import { GetReadySheet } from '@/components/get-ready-sheet';
 import { LiveChat } from '@/components/live-chat';
 import { pickSpotlight, ProductSpotlight } from '@/components/product-spotlight';
@@ -84,7 +84,10 @@ type RailSheet = 'wallet' | 'shop' | 'more';
 
 /** Reaction WRITE coalescing window. Every tap animates locally for free; a
  *  Firestore 🔥 message — a write fanned out to every viewer in the room —
- *  goes out at most once per window per device, no matter the tap count. */
+ *  goes out on the FIRST tap of a window (leading edge), and taps 2..N
+ *  coalesce into ONE more write when the window closes (trailing edge), which
+ *  re-arms the window. Sustained tapping therefore costs about one write per
+ *  window per device, without the room ever losing a burst entirely. */
 const REACTION_WRITE_GAP_MS = 8000;
 
 /** Short pill/button wording per server verdict code.
@@ -274,12 +277,50 @@ export default function LiveRoomScreen() {
 
   /** The reaction still sends a real chat message — there is no separate
    *  reactions channel, so web viewers keep seeing the 🔥 they always did.
-   *  But the FEEL and the WRITE are decoupled now: every tap fires the local
+   *  But the FEEL and the WRITE are decoupled: every tap fires the local
    *  floating flame immediately (only the overlay re-renders — its state is
    *  its own), while the Firestore write, a fan-out to every viewer in the
-   *  room, coalesces to at most one per REACTION_WRITE_GAP_MS per device. */
+   *  room, coalesces per REACTION_WRITE_GAP_MS — leading edge plus ONE
+   *  trailing-edge catch-up for taps suppressed inside the window. Purely
+   *  leading-edge (the old shape) made taps 2..N vanish server-side: a
+   *  20-tap flurry read as a single 🔥 to everyone else in the room. */
   const reactionsRef = useRef<ReactionOverlayHandle>(null);
   const lastReactionWriteAt = useRef(0);
+  // Armed by the first suppressed tap of a window; fires one catch-up write
+  // when the window closes (which re-arms the window).
+  const trailingReaction = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Un-arm the trailing timer when the room unmounts — a queued catch-up
+  // must not write into a show the buyer has already left.
+  useEffect(() => {
+    return () => {
+      if (trailingReaction.current) {
+        clearTimeout(trailingReaction.current);
+        trailingReaction.current = null;
+      }
+    };
+  }, []);
+
+  /** The actual 🔥 write, shared by the leading and trailing edges. The
+   *  window clock is stamped optimistically (so taps landing while the write
+   *  is in flight coalesce into the trailing edge instead of double-writing)
+   *  but ROLLED BACK on failure: a write that never reached the room must not
+   *  consume the window — the next tap retries immediately instead of being
+   *  silently muted for the rest of it. */
+  async function writeReaction() {
+    const stamp = Date.now();
+    lastReactionWriteAt.current = stamp;
+    try {
+      await sendMessage(String(id), {
+        user: user?.displayName || user?.email?.split('@')[0] || 'buyer',
+        text: '🔥',
+      });
+    } catch {
+      /* transient; the chat listener is the source of truth */
+      if (lastReactionWriteAt.current === stamp) lastReactionWriteAt.current = 0;
+    }
+  }
+
   async function sendReaction() {
     if (!user) {
       requireAuth('chat', () => {});
@@ -287,22 +328,61 @@ export default function LiveRoomScreen() {
     }
     // Animate NOW — the tap must feel instant regardless of what gets written.
     reactionsRef.current?.burst();
-    const now = Date.now();
-    if (now - lastReactionWriteAt.current < REACTION_WRITE_GAP_MS) return;
-    lastReactionWriteAt.current = now;
-    try {
-      await sendMessage(String(id), {
-        user: user.displayName || user.email?.split('@')[0] || 'buyer',
-        text: '🔥',
-      });
-    } catch {
-      /* transient; the chat listener is the source of truth */
+    const remaining = REACTION_WRITE_GAP_MS - (Date.now() - lastReactionWriteAt.current);
+    if (remaining > 0) {
+      // Inside the window: suppress the write, but remember the tap — ONE
+      // trailing-edge 🔥 goes out when the window closes so the burst is
+      // never lost entirely.
+      if (!trailingReaction.current) {
+        trailingReaction.current = setTimeout(() => {
+          trailingReaction.current = null;
+          void writeReaction();
+        }, remaining);
+      }
+      return;
     }
+    await writeReaction();
   }
 
   useEffect(() => {
     if (!id) return;
-    const offAuctions = listenAuctions(String(id), setAuctions);
+    // ── Two-lane reconciliation: the Firestore lane ──
+    //
+    // Auction state reaches setAuctions on two lanes: the engine socket
+    // (below — per-bid frames, merged by `version`) and this Firestore
+    // listener. The engine's steady-state flush to Firestore runs at ~1s and
+    // its backpressure may SKIP socket frames, relying on this snapshot to
+    // reconcile — so a snapshot can be up to ~1s behind what the socket
+    // already delivered. Replacing the whole array here (the old raw
+    // setAuctions) let that stale snapshot stomp newer socket state:
+    // price/leader/endsAt regressed, the quick-bid button computed a too-low
+    // minNext (BID_TOO_LOW), and a regressed endsAt re-armed the finalize
+    // poll. So this lane merges by the SAME version counter the socket lane
+    // uses — whichever lane is newer wins, and the two can never fight:
+    //   • a doc we don't hold yet → take it (only Firestore announces lots);
+    //   • doc version >= held → Firestore is newer or equal — take it;
+    //   • status !== 'open' → take it regardless of version: a SETTLED doc
+    //     is the server's decision (winner, payment window), not a bid frame;
+    //   • otherwise keep the socket lane's bid fields on the fresh doc.
+    const offAuctions = listenAuctions(String(id), (incoming) =>
+      setAuctions((prev) =>
+        incoming.map((fsDoc) => {
+          const held = prev.find((h) => h.id === fsDoc.id);
+          if (!held) return fsDoc;
+          if ((fsDoc.version || 0) >= (held.version || 0)) return fsDoc; // Firestore newer or equal wins
+          if (fsDoc.status !== 'open') return fsDoc; // a SETTLED doc is authoritative regardless of version — the server decided
+          return {
+            ...fsDoc,
+            currentBid: held.currentBid,
+            currentBidderUid: held.currentBidderUid,
+            currentBidderName: held.currentBidderName,
+            bidCount: held.bidCount,
+            endsAt: held.endsAt,
+            version: held.version,
+          };
+        })
+      )
+    );
     const offProducts = listenProducts(String(id), setProducts);
     return () => {
       offAuctions();
@@ -1070,6 +1150,12 @@ export default function LiveRoomScreen() {
         }}
         preferredMethod={profile?.preferredMethod || undefined}
         onSuccess={() => {
+          // Payment confirmed — the purchase INTENT is complete, so release
+          // its idempotency key: the next buy of this product must mint a
+          // fresh key instead of replaying this (now paid) order. This is the
+          // ONLY boundary where the key is dropped — a dismissed or failed
+          // checkout keeps it, so retries replay the same reservation.
+          if (buyingProductId) clearBuyNowIntent(buyingProductId);
           setBuyOrder(null);
           setBuyingProductId(null);
           setNotice('Payment confirmed — it’s yours! Track it under Orders.');

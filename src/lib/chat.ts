@@ -95,11 +95,18 @@ export async function sendMessage(
   const u = auth.currentUser;
   if (!u) throw new Error('Sign in to send messages');
 
+  // Belt and braces for the server's chat rules: firestore.rules now caps
+  // text at 500 chars and user at 60. An over-length write isn't rejected
+  // loudly — it's silently denied and just reads as a failed send — so clamp
+  // client-side to the same limits before writing.
+  const user = payload.user.slice(0, 60);
+  const text = payload.text.slice(0, 500);
+
   await addDoc(collection(db, 'shows', showId, 'chat'), {
     uid: u.uid,
-    user: payload.user,
-    text: payload.text,
-    avatar: payload.avatar ?? payload.user.slice(0, 2).toUpperCase(),
+    user,
+    text,
+    avatar: payload.avatar ?? user.slice(0, 2).toUpperCase(),
     isBid: !!payload.isBid,
     createdAt: serverTimestamp(),
     // Firestore TTL field the backend is enabling: chat is ephemeral room

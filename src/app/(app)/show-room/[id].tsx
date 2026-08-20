@@ -178,7 +178,40 @@ export default function ShowRoomScreen() {
   //    sides see a bid at the same moment. ──
   useEffect(() => {
     if (!showId) return;
-    const offAuctions = listenAuctions(showId, setAuctions);
+    // ── Two-lane reconciliation: the Firestore lane ──
+    //
+    // Same contract as the buyer's room. Auction state reaches setAuctions on
+    // two lanes: the engine socket (the fast lane below, merged by `version`)
+    // and this Firestore listener. The engine's steady-state flush runs at
+    // ~1s and its backpressure may SKIP socket frames, relying on this
+    // snapshot to reconcile — so a snapshot can trail the socket by ~1s.
+    // Replacing the array wholesale here let that stale snapshot stomp newer
+    // socket state and regress the price/leader/clock the seller was reading
+    // out on air. So this lane merges by the SAME version counter:
+    //   • a doc we don't hold yet → take it (only Firestore announces lots);
+    //   • doc version >= held → Firestore is newer or equal — take it;
+    //   • status !== 'open' → take it regardless of version: a SETTLED doc
+    //     is the server's decision (winner, payment window), not a bid frame;
+    //   • otherwise keep the socket lane's bid fields on the fresh doc.
+    const offAuctions = listenAuctions(showId, (incoming) =>
+      setAuctions((prev) =>
+        incoming.map((fsDoc) => {
+          const held = prev.find((h) => h.id === fsDoc.id);
+          if (!held) return fsDoc;
+          if ((fsDoc.version || 0) >= (held.version || 0)) return fsDoc; // Firestore newer or equal wins
+          if (fsDoc.status !== 'open') return fsDoc; // a SETTLED doc is authoritative regardless of version — the server decided
+          return {
+            ...fsDoc,
+            currentBid: held.currentBid,
+            currentBidderUid: held.currentBidderUid,
+            currentBidderName: held.currentBidderName,
+            bidCount: held.bidCount,
+            endsAt: held.endsAt,
+            version: held.version,
+          };
+        })
+      )
+    );
     const offProducts = listenProducts(showId, setProducts);
     return () => {
       offAuctions();

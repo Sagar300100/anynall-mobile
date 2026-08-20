@@ -21,6 +21,7 @@ import type { ShowData } from './api';
 import type { SellingFormat } from './category-tree';
 import { auth, db } from './firebase';
 import { getSellerOnboarding } from './seller';
+import { invalidateShowsCache } from './shows-cache';
 
 function toUI(id: string, d: any): ShowData {
   const when = d?.scheduled_time ? new Date(d.scheduled_time) : null;
@@ -188,6 +189,9 @@ export async function createShow(p: NewShow): Promise<string> {
     status: 'scheduled',
     createdAt: serverTimestamp(),
   });
+  // The list screens read through the 60s catalog cache (hooks/use-shows) —
+  // drop it so the new show appears on the next mount, not after the TTL.
+  invalidateShowsCache();
   return ref.id;
 }
 
@@ -217,6 +221,8 @@ export async function fetchMyUpcomingShows(): Promise<ShowData[]> {
  *  their own. */
 export async function deleteShow(id: string): Promise<void> {
   await deleteDoc(doc(db, 'shows', id));
+  // Cancelled shows must vanish from the cached catalog immediately.
+  invalidateShowsCache();
 }
 
 // ── Editing ────────────────────────────────────────────────────────────────
@@ -284,6 +290,8 @@ export async function updateShow(id: string, p: NewShow): Promise<void> {
     mutedWords: p.mutedWords,
     updatedAt: serverTimestamp(),
   });
+  // Edits must be visible on the next list mount, not after the cache TTL.
+  invalidateShowsCache();
 }
 
 // NOTE: there is deliberately no `setShowLive` here. Going live is SERVER

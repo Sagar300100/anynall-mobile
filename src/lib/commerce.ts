@@ -201,7 +201,8 @@ export interface BuyNowOrder {
  * `idempotencyKey` (optional, server-accepted): one key per purchase INTENT,
  * so a double-tap or an app-level retry replays the same reservation instead
  * of reserving a second unit. The caller owns the key's lifetime — see
- * BuyNowSheet, which mints one per sheet-opening.
+ * BuyNowSheet, which holds one key per product until the purchase SUCCEEDS
+ * (cleared via clearBuyNowIntent from the checkout's onSuccess).
  */
 export function createBuyNowOrder(
   productId: string,
