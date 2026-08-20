@@ -16,6 +16,7 @@ import {
   type CommerceProfile,
 } from '@/lib/commerce';
 import { RazorpayCheckout, type CheckoutOrder } from '@/components/razorpay-checkout';
+import { reauth as reauthAuctionEngine } from '@/lib/auction-socket';
 import { useSession } from '@/lib/session';
 
 interface Props {
@@ -27,6 +28,14 @@ interface Props {
 export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
   const c = useBrandColors();
   const { user } = useSession();
+
+  // What Razorpay will actually charge. Settlement mirrors these onto the
+  // auction doc for exactly this drawer; the fallbacks cover a doc written by
+  // a pre-mirror backend, where shipping is unknown and the bid is the best
+  // honest number.
+  const bidAmount = auction.winningBidAmount ?? auction.currentBid;
+  const shippingFee = auction.winningShippingFee ?? 0;
+  const totalAmount = auction.winningTotalAmount ?? bidAmount + shippingFee;
 
   const [order, setOrder] = useState<
     (CheckoutOrder & { productTitle?: string; paymentWindowExpiresAt?: string }) | null
@@ -108,8 +117,9 @@ export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
               <Ionicons name="trophy-outline" size={44} color={c.primary} style={styles.icon} />
               <Text style={[styles.title, { color: c.text }]}>You won!</Text>
               <Text style={[styles.sub, { color: c.textSecondary }]}>
-                Winning bid {formatPaise(auction.currentBid)}. Complete payment before the
-                timer runs out to claim it.
+                Winning bid {formatPaise(bidAmount)}
+                {shippingFee > 0 ? ` + ${formatPaise(shippingFee)} shipping` : ''}. Complete
+                payment before the timer runs out to claim it.
               </Text>
 
               <View
@@ -134,7 +144,7 @@ export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
 
               <FormError message={err} />
               <PrimaryButton
-                title={`Pay ${formatPaise(auction.currentBid)} now`}
+                title={`Pay ${formatPaise(totalAmount)} now`}
                 onPress={pay}
                 loading={busy}
               />
@@ -161,6 +171,10 @@ export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
         onSuccess={() => {
           setCheckoutOpen(false);
           setPaid(true);
+          // Paying releases the unpaid-wins hold, but the engine judged this
+          // bidder with the context it cached at socket auth — reconnect so
+          // the next bid isn't rejected with the stale BID_BLOCKED_UNPAID.
+          reauthAuctionEngine();
         }}
         onDismiss={() => setCheckoutOpen(false)}
         onError={(message) => {

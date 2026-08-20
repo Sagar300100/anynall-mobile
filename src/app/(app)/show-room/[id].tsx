@@ -22,7 +22,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
@@ -32,7 +31,7 @@ import {
   query,
   updateDoc,
 } from 'firebase/firestore';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -53,6 +52,7 @@ import { AgentHelperSheet } from '@/components/agent-helper-sheet';
 import { ShowMoreSheet } from '@/components/show-more-sheet';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
+import { sendMessage } from '@/lib/chat';
 import { formatPaise, type AuctionRecord } from '@/lib/commerce';
 import { auth, db } from '@/lib/firebase';
 import { subscribe as engineSubscribe, type EngineAuction } from '@/lib/auction-socket';
@@ -211,6 +211,9 @@ export default function ShowRoomScreen() {
   }, [showId]);
 
   // ── Live chat: the shows/{id}/chat subcollection in firestore.rules ──
+  // Canonical docs carry `user`; docs written by an earlier build of THIS
+  // screen carry `name` instead. Reading both means buyer messages stop
+  // rendering as "Someone" and old seller messages keep their name.
   useEffect(() => {
     if (!showId) return;
     const q = query(
@@ -228,7 +231,7 @@ export default function ShowRoomScreen() {
               return {
                 id: d.id,
                 uid: String(v.uid ?? ''),
-                name: String(v.name ?? 'Someone'),
+                name: String(v.user ?? v.name ?? 'Someone'),
                 text: String(v.text ?? ''),
               };
             })
@@ -262,8 +265,11 @@ export default function ShowRoomScreen() {
   const msLeft = startsAtMs !== null && nowMs ? startsAtMs - nowMs : null;
   const countdown = msLeft === null ? null : countdownLabel(msLeft);
 
-  // Newest auction drives the strip; only an OPEN one is on the block.
-  const lot = auctions[0] && auctions[0].status === 'open' ? auctions[0] : null;
+  // The OPEN auction drives the strip, wherever it sits in the list. The
+  // query orders by updatedAt, and settlement/webhooks bump older docs — with
+  // `auctions[0]` a just-paid lot jumping the queue blanked the strip while a
+  // lot was genuinely on the block.
+  const lot = auctions.find((a) => a.status === 'open') || null;
   const lotProduct = lot ? products.find((p) => p.id === lot.productId) || null : null;
   // `nowMs` already ticks once a second for the show countdown; reading it
   // here is what re-runs this line, so the lot clock needs no second interval.
@@ -296,16 +302,19 @@ export default function ShowRoomScreen() {
 
   async function sendChat() {
     const text = draft.trim();
-    const uid = auth.currentUser?.uid;
-    if (!text || !uid || sending) return;
+    if (!text || !auth.currentUser || sending) return;
     setSending(true);
     setDraft('');
     try {
-      await addDoc(collection(db, 'shows', showId, 'chat'), {
-        uid,
-        name: seller?.storeName || 'Seller',
+      // The SHARED chat writer, same as the buyer room and the website. This
+      // screen used to write its own shape ({ name, createdAt: ISO-string })
+      // — the `name` field crashed every buyer room's render the moment a
+      // seller message arrived, and the string timestamp sorted into a
+      // separate block from every Timestamp message (Firestore orders mixed
+      // types by TYPE first), scrambling the timeline on both surfaces.
+      await sendMessage(showId, {
+        user: seller?.storeName || 'Seller',
         text: text.slice(0, 300),
-        createdAt: new Date().toISOString(),
       });
     } catch {
       setDraft(text); // keep what they typed
@@ -338,6 +347,53 @@ export default function ShowRoomScreen() {
     }
   }
 
+  // ── Live lifecycle safety ──
+  //
+  // Going live opens the room gate SERVER-side the moment the host token is
+  // minted — before the camera permission prompt has even appeared. Every
+  // teardown path must therefore close the gate, or the show wears a LIVE
+  // badge in every browse rail while viewers join a permanently empty room:
+  //   • End Show button → toggleLive() (the only path that existed);
+  //   • camera/mic denied or publish failed → onBroadcastFatal below;
+  //   • seller navigates away / screen unmounts → the unmount cleanup.
+  // The web host does the same on publish failure and page unmount.
+  const isLiveRef = useRef(false);
+  useEffect(() => {
+    isLiveRef.current = isLive;
+  }, [isLive]);
+  useEffect(
+    () => () => {
+      if (isLiveRef.current) endStream(showId).catch(() => {});
+    },
+    [showId]
+  );
+
+  // Fatal broadcast failure: the gate is open but nothing will ever publish.
+  // Close the gate and put the room back in its pre-live state. useCallback on
+  // [showId] keeps the prop referentially stable across the 1s countdown tick
+  // (BroadcastStage tears down the LiveKit room on prop identity changes).
+  const onBroadcastFatal = useCallback(
+    (message: string) => {
+      endStream(showId).catch(() => {});
+      setIsLive(false);
+      Alert.alert('Broadcast stopped', message);
+    },
+    [showId]
+  );
+
+  // Heartbeat: the backend sweeps liveRooms whose updatedAt is stale (a
+  // crashed host must not stay LIVE forever), and only host-token mints
+  // refresh that timestamp. Re-mint one every 20 minutes while live so an
+  // uninterrupted long show is never mistaken for a dead one — the grant
+  // itself is discarded, the refresh is the point.
+  useEffect(() => {
+    if (!isLive) return;
+    const t = setInterval(() => {
+      getStreamToken(showId, 'host', seller?.storeName || undefined).catch(() => {});
+    }, 20 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [isLive, showId, seller?.storeName]);
+
   async function saveNotes() {
     setSavingNotes(true);
     try {
@@ -366,6 +422,7 @@ export default function ShowRoomScreen() {
             showId={showId}
             displayName={seller?.storeName || undefined}
             onError={reportBroadcastError}
+            onFatal={onBroadcastFatal}
           />
         ) : (
           <>

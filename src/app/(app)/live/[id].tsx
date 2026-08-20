@@ -18,6 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
@@ -44,7 +45,9 @@ import { ViewerStage } from '@/components/viewer-stage';
 import { WinnerPaymentSheet } from '@/components/winner-payment-sheet';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
+import { useAuthGate } from '@/lib/auth-gate';
 import { sendMessage, subscribeMessages, type ChatDoc } from '@/lib/chat';
+import { db } from '@/lib/firebase';
 import { follow, isFollowing, unfollow } from '@/lib/follows';
 import {
   canBuyFromShow,
@@ -123,8 +126,57 @@ export default function LiveRoomScreen() {
   const [chatHidden, setChatHidden] = useState(false);
   // Tab screens stay mounted; only the visible screen may hold a LiveKit room.
   const screenFocused = useScreenFocused(true);
+  const requireAuth = useAuthGate();
 
   const sellerUid = show?.ownerUid ?? null;
+
+  // ── The show doc itself, live ──
+  //
+  // The header data comes from useShows() (a one-shot list fetch), which meant
+  // the room NEVER heard the show end: the seller closed the broadcast, the
+  // host track vanished, and every viewer sat on a frozen joining spinner with
+  // no ended message and no way to the replay. One doc listener carries the
+  // whole lifecycle: ended (isLive false + endedAt) and gone-live (for early
+  // arrivals parked on SHOW_NOT_LIVE).
+  const [liveState, setLiveState] = useState<{
+    isLive: boolean;
+    endedAt: string | null;
+    replayUrl: string | null;
+  } | null>(null);
+  // Bumped when the show transitions to live so ViewerStage remounts and
+  // retries the token it was refused with SHOW_NOT_LIVE. Keyed remount is the
+  // retry: the failed join dropped itself, so a fresh adopt starts clean.
+  const [stageEpoch, setStageEpoch] = useState(0);
+  const prevLive = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    return onSnapshot(
+      doc(db, 'shows', String(id)),
+      (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data() as any;
+        setLiveState({
+          isLive: !!d.isLive,
+          endedAt: d.endedAt ?? null,
+          replayUrl: d.replay_url ?? null,
+        });
+      },
+      (err) => console.warn('[live] show listener error:', err?.message)
+    );
+  }, [id]);
+
+  useEffect(() => {
+    if (!liveState) return;
+    const was = prevLive.current;
+    prevLive.current = liveState.isLive;
+    // Known-not-live → live is the only transition that needs a fresh join.
+    // (First snapshot arrives with `was === null` and must NOT remount — the
+    // warm join from the tap is already connecting.)
+    if (was === false && liveState.isLive) setStageEpoch((e) => e + 1);
+  }, [liveState]);
+
+  const showEnded = !!liveState && !liveState.isLive && !!liveState.endedAt;
 
   // Can this buyer actually buy from this seller? A composition or eligible
   // unregistered seller may only deliver inside their own State, so an
@@ -196,11 +248,21 @@ export default function LiveRoomScreen() {
   }
 
   /** The reaction sends a real chat message — there is no separate reactions
-   *  channel, so this rides the one that exists rather than animating nothing. */
+   *  channel, so this rides the one that exists rather than animating nothing.
+   *  Throttled per device: every tap is a Firestore write fanned out to every
+   *  viewer in the room, so the cheapest-feeling tap must not be spammable. */
+  const lastReactionAt = useRef(0);
   async function sendReaction() {
+    if (!user) {
+      requireAuth('chat', () => {});
+      return;
+    }
+    const now = Date.now();
+    if (now - lastReactionAt.current < 1000) return;
+    lastReactionAt.current = now;
     try {
       await sendMessage(String(id), {
-        user: user?.displayName || user?.email?.split('@')[0] || 'buyer',
+        user: user.displayName || user.email?.split('@')[0] || 'buyer',
         text: '🔥',
       });
     } catch {
@@ -208,11 +270,15 @@ export default function LiveRoomScreen() {
     }
   }
 
+  // Chat reads are signed-in only (firestore.rules) — for a guest the listener
+  // died with permission-denied and, with no error callback, the room simply
+  // showed an empty chat that read as broken. Guests now get a sign-in prompt
+  // in the chat column instead, and no doomed listener is opened at all.
   useEffect(() => {
-    if (!id) return;
+    if (!id || !user) return;
     const unsubscribe = subscribeMessages(String(id), setMessages);
     return unsubscribe;
-  }, [id]);
+  }, [id, user]);
 
   useEffect(() => {
     if (!id) return;
@@ -321,7 +387,7 @@ export default function LiveRoomScreen() {
   // most needs to feel instant was the only slow one. Deliberately gated on a
   // live auction, not on entering the room, so it never sits in front of the
   // video join.
-  const hasLot = !!auctions[0] && auctions[0].status === 'open';
+  const hasLot = auctions.some((a) => a.status === 'open');
   useEffect(() => {
     if (!hasLot || profile) return;
     let cancelled = false;
@@ -337,18 +403,31 @@ export default function LiveRoomScreen() {
     };
   }, [hasLot, profile]);
 
-  // Newest auction drives the panel; ended ones fall out of the UI on their
-  // own because the panel renders nothing for final statuses.
-  const auction = auctions[0] || null;
+  // The OPEN lot drives the panel — never blindly the newest doc. The list is
+  // ordered by updatedAt, and the backend deliberately lets the seller start
+  // the next lot while the previous winner pays (and lets a webhook bump an
+  // older doc), so auctions[0] flips identity mid-payment: bound to it, the
+  // winner's payment drawer vanished with the timer still running, and the
+  // open lot's panel disappeared whenever a settled doc jumped the queue.
+  // Same selection as the web room: find the open doc for the panel, fall back
+  // to the newest for the brief just-sold state.
+  const openAuction = auctions.find((a) => a.status === 'open') || null;
+  const auction = openAuction || auctions[0] || null;
   const auctionProduct = auction
     ? products.find((p) => p.id === auction.productId) || null
     : null;
 
-  const showWinnerSheet =
-    !!auction &&
-    auction.status === 'awaiting_winner_payment' &&
-    (auction.winnerUid || auction.currentBidderUid) === user?.uid &&
-    dismissedWinFor !== auction.id;
+  // The winner sheet scans ALL docs for THIS user's unpaid win — its identity
+  // is the win itself, independent of whatever the panel is showing.
+  const wonAuction =
+    (user &&
+      auctions.find(
+        (a) =>
+          a.status === 'awaiting_winner_payment' &&
+          (a.winnerUid || a.currentBidderUid) === user.uid &&
+          dismissedWinFor !== a.id
+      )) ||
+    null;
 
   const spotlight = pickSpotlight(products);
   const buyingProduct = buyingProductId
@@ -405,13 +484,19 @@ export default function LiveRoomScreen() {
   };
 
   async function handleSend() {
+    if (!user) {
+      // The gate navigates to sign-in with the chat reason and brings the
+      // buyer straight back here — the draft survives in state.
+      requireAuth('chat', () => {});
+      return;
+    }
     const text = draft.trim();
     if (!text || sending) return;
     setSending(true);
     setDraft('');
     try {
       await sendMessage(String(id), {
-        user: user?.displayName || user?.email?.split('@')[0] || 'buyer',
+        user: user.displayName || user.email?.split('@')[0] || 'buyer',
         text,
       });
     } catch {
@@ -441,8 +526,9 @@ export default function LiveRoomScreen() {
           delay came from. The server is the authority anyway: it answers
           SHOW_NOT_LIVE if the room isn't open, which ViewerStage surfaces. */}
       <View style={styles.stage}>
-        {screenFocused ? (
+        {screenFocused && !showEnded ? (
           <ViewerStage
+            key={stageEpoch}
             showId={String(id)}
             displayName={user?.displayName || user?.email?.split('@')[0] || undefined}
             posterUrl={show?.thumbnail || null}
@@ -588,7 +674,18 @@ export default function LiveRoomScreen() {
           {/* ── Chat (left) + action rail (right) ────────────────────── */}
           <View style={styles.midRow}>
             <View style={styles.chatCol}>
-              {!chatHidden && (
+              {!chatHidden && !user && (
+                <Pressable
+                  onPress={() => requireAuth('chat', () => {})}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sign in to join the chat"
+                  style={({ pressed }) => [styles.chatSignIn, pressed && { opacity: 0.8 }]}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFFFFF" />
+                  <Text style={styles.chatSignInText}>Sign in to watch and join the chat</Text>
+                </Pressable>
+              )}
+              {!chatHidden && !!user && (
                 <FlatList
                   ref={listRef}
                   data={messages}
@@ -704,6 +801,51 @@ export default function LiveRoomScreen() {
           ) : null}
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* ── Show ended ───────────────────────────────────────────────────
+          The doc listener is the authority: isLive false with an endedAt stamp
+          means the host closed the room. Without this, viewers were left on a
+          frozen joining spinner forever. The stage above is already unmounted
+          (showEnded gates it), which parks/releases the LiveKit room. */}
+      {showEnded && (
+        <View style={styles.endedOverlay}>
+          <Ionicons name="radio-outline" size={42} color="rgba(255,255,255,0.9)" />
+          <Text style={styles.endedTitle}>This show has ended</Text>
+          <Text style={styles.endedBody}>
+            {liveState?.replayUrl
+              ? 'You can watch the replay right now.'
+              : 'Thanks for watching — the seller has closed the room.'}
+          </Text>
+          {!!liveState?.replayUrl && (
+            <Pressable
+              onPress={() =>
+                router.replace({
+                  pathname: '/replay',
+                  params: { url: liveState.replayUrl!, title: show?.name || 'Replay' },
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Watch the replay"
+              style={({ pressed }) => [styles.endedBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Ionicons name="play" size={16} color="#FFFFFF" />
+              <Text style={styles.endedBtnText}>Watch replay</Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+            accessibilityRole="button"
+            accessibilityLabel="Leave the show"
+            style={({ pressed }) => [
+              styles.endedBtn,
+              styles.endedBtnGhost,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Text style={styles.endedBtnText}>Back to shows</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* More / Wallet / Shop — the rail's sheets. */}
       <Modal visible={rail !== null} transparent animationType="slide" onRequestClose={() => setRail(null)}>
@@ -874,12 +1016,13 @@ export default function LiveRoomScreen() {
         onClose={() => setGetReadyOpen(false)}
       />
 
-      {/* Winner payment */}
-      {showWinnerSheet && auction && (
+      {/* Winner payment — bound to THIS user's unpaid win wherever it sits in
+          the list, so the seller starting the next lot can't dismiss it. */}
+      {wonAuction && (
         <WinnerPaymentSheet
-          auction={auction}
+          auction={wonAuction}
           profile={profile}
-          onDone={() => setDismissedWinFor(auction.id)}
+          onDone={() => setDismissedWinFor(wonAuction.id)}
         />
       )}
 
@@ -1135,6 +1278,59 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reactBtnSend: { backgroundColor: '#2E6BFF', borderColor: '#2E6BFF' },
+
+  // ── Guest chat prompt ─────────────────────────────────────────────────
+  chatSignIn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    alignSelf: 'flex-start',
+    marginLeft: Spacing.three,
+    marginBottom: Spacing.two,
+    backgroundColor: 'rgba(18,26,44,0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+  },
+  chatSignInText: { color: '#FFFFFF', fontSize: 13, fontFamily: Fonts.sansSemiBold },
+
+  // ── Ended overlay ─────────────────────────────────────────────────────
+  endedOverlay: {
+    ...(StyleSheet.absoluteFill as object),
+    backgroundColor: 'rgba(3,7,18,0.88)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two + Spacing.one,
+    paddingHorizontal: Spacing.five,
+  },
+  endedTitle: { color: '#FFFFFF', fontSize: 22, fontFamily: Fonts.sansSemiBold, textAlign: 'center' },
+  endedBody: {
+    color: 'rgba(214,224,242,0.85)',
+    fontSize: 14,
+    fontFamily: Fonts.sans,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  endedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minWidth: 200,
+    minHeight: 48,
+    borderRadius: 999,
+    backgroundColor: '#2E6BFF',
+    paddingHorizontal: Spacing.four,
+    marginTop: Spacing.one,
+  },
+  endedBtnGhost: {
+    backgroundColor: 'rgba(18,26,44,0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  endedBtnText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.sansSemiBold },
 
   notice: {
     marginHorizontal: Spacing.three,

@@ -22,6 +22,13 @@ export interface AuctionRecord {
   status: string;
   winnerUid?: string | null;
   paymentWindowExpiresAt?: string | null;
+  /** Mirrored onto the doc at settlement precisely so the winner's payment
+   *  drawer can show the same bid + shipping = total the order actually
+   *  charges. Razorpay charges winningTotalAmount — displaying currentBid
+   *  alone under-quotes any lot whose product carries a shipping fee. */
+  winningBidAmount?: number;
+  winningShippingFee?: number;
+  winningTotalAmount?: number;
   /** Anti-sniping disabled for this lot: the clock never extends, so whoever
    *  leads at zero wins. Snapshotted onto the auction when it starts. */
   suddenDeath?: boolean;
@@ -241,4 +248,15 @@ export function newIdempotencyKey(): string {
 
 export function formatPaise(paise: number): string {
   return `₹${(paise / 100).toLocaleString('en-IN')}`;
+}
+
+/** Fallback for a status value no label map knows: de-snake and title-case it
+ *  ('late_success_review' → 'Late Success Review') so a new backend status
+ *  reads as words on screen, never raw snake_case. */
+export function humanizeStatus(status: string): string {
+  return status
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
 }
