@@ -15,9 +15,12 @@
 //     photo. The reference's centre area is empty video; that is what renders.
 //   • Add to Calendar — expo-calendar isn't installed, so the button says so
 //     instead of silently doing nothing.
-//   • Viewer count — there is no presence system in this backend, so it shows
-//     "—" rather than an invented number.
 //   • Promote — no promotion system exists.
+//
+// Viewer count: real while LIVE — the LiveKit room IS the presence system
+// (remoteParticipants + 1, the +1 being the seller), surfaced by
+// BroadcastStage via onRoom and isolated in its own memo'd pill. Off air
+// there is nothing to count, so it shows "—", never an invented number.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -30,7 +33,8 @@ import {
   query,
   updateDoc,
 } from 'firebase/firestore';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Room } from 'livekit-client';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -51,6 +55,7 @@ import { AgentHelperSheet } from '@/components/agent-helper-sheet';
 import { ShowMoreSheet } from '@/components/show-more-sheet';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
+import { useViewerCount } from '@/hooks/use-viewer-count';
 import { sendMessage } from '@/lib/chat';
 import { formatPaise, type AuctionRecord } from '@/lib/commerce';
 import { auth, db } from '@/lib/firebase';
@@ -110,6 +115,11 @@ export default function ShowRoomScreen() {
   const [helperOpen, setHelperOpen] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [goingLive, setGoingLive] = useState(false);
+  // The LiveKit room BroadcastStage is publishing into — the presence source
+  // for the header's viewer pill. Set once per broadcast (null off air), so
+  // this state changes on broadcast lifecycle, never per viewer join:
+  // joins/leaves are the PILL's own state (see ViewerCountPill below).
+  const [broadcastRoom, setBroadcastRoom] = useState<Room | null>(null);
   // The lot on the block. The seller was running a live auction with no idea
   // what was on screen or who was ahead — they had to open Shop to find out.
   const [auctions, setAuctions] = useState<AuctionRecord[]>([]);
@@ -488,6 +498,7 @@ export default function ShowRoomScreen() {
             displayName={seller?.storeName || undefined}
             onError={reportBroadcastError}
             onFatal={onBroadcastFatal}
+            onRoom={setBroadcastRoom}
           />
         ) : (
           <>
@@ -525,11 +536,11 @@ export default function ShowRoomScreen() {
               </Text>
             )}
           </View>
-          {/* No presence system exists, so this is "—", never a fake number. */}
-          <View style={styles.viewers} accessibilityLabel="Viewers: not available">
-            <Ionicons name="stats-chart" size={14} color="#4A8FE5" />
-            <Text style={styles.viewersText}>—</Text>
-          </View>
+          {/* While live, the LiveKit room IS the presence system — the count
+              is remoteParticipants + 1 (the seller). Off air it stays "—".
+              Isolated: the count is the pill's own state, so viewers joining
+              never re-render this screen (which already ticks every second). */}
+          <ViewerCountPill room={broadcastRoom} />
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.replace('/sell'))}
             accessibilityRole="button"
@@ -816,6 +827,24 @@ export default function ShowRoomScreen() {
     </View>
   );
 }
+
+/** The header's viewer pill. The count is ITS state (useViewerCount), so
+ *  buyers joining and leaving re-render this pill and nothing else. memo +
+ *  a stable `room` prop (set once per broadcast) keep the screen's 1s
+ *  countdown tick from touching it. Label stays honest: a number only while
+ *  the broadcast is actually connected. */
+const ViewerCountPill = memo(function ViewerCountPill({ room }: { room: Room | null }) {
+  const count = useViewerCount(room);
+  return (
+    <View
+      style={styles.viewers}
+      accessibilityLabel={count === null ? 'Viewers: not available' : `Viewers: ${count}`}
+    >
+      <Ionicons name="stats-chart" size={14} color="#4A8FE5" />
+      <Text style={styles.viewersText}>{count === null ? '—' : String(count)}</Text>
+    </View>
+  );
+});
 
 function RailButton({
   icon,

@@ -83,7 +83,7 @@
         {
           "icon": "./assets/images/android-icon-monochrome.png",
           "color": "#4DB8FF",
-          "defaultChannel": "show-reminders"
+          "defaultChannel": "default"
         }
       ]
     ],

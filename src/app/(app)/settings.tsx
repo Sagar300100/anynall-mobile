@@ -28,6 +28,13 @@ import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { exportMyData, hasPasswordProvider, isTwoFactorEnrolled } from '@/lib/account';
 import { useAuthStatus } from '@/lib/auth-gate';
+import {
+  canNotify,
+  getPushPreference,
+  registerForPush,
+  setPushPreference,
+  unregisterPush,
+} from '@/lib/push';
 import { useSession } from '@/lib/session';
 import { getPublicProfile, setAccountPrivacy } from '@/lib/users';
 
@@ -81,6 +88,62 @@ export default function SettingsScreen() {
       );
     } finally {
       setPrivacyBusy(false);
+    }
+  }
+
+  // Push notifications on THIS device. null = still reading the stored
+  // preference + OS permission — the switch is disabled until both arrive.
+  // The value shown is preference AND permission: an "on" switch while the
+  // OS blocks the app would be a fake toggle.
+  const [pushOn, setPushOn] = useState<boolean | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const [pref, allowed] = await Promise.all([getPushPreference(), canNotify()]);
+        if (!cancelled) setPushOn(pref && allowed);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  async function togglePush(next: boolean) {
+    if (pushBusy || pushOn === null) return;
+    const prev = pushOn;
+    setPushOn(next); // optimistic; rolled back below
+    setPushBusy(true);
+    try {
+      await setPushPreference(next);
+      if (next) {
+        // Registers the device + posts the token; may show the OS permission
+        // prompt if it was never granted. Never throws.
+        const result = await registerForPush();
+        if (result !== 'registered') {
+          // Honest rollback — the OS refused or this device can't do push.
+          await setPushPreference(false);
+          setPushOn(false);
+          Alert.alert(
+            'Couldn’t turn on notifications',
+            result === 'denied'
+              ? 'Notifications are blocked for Any&All in your device settings. Allow them there, then try again.'
+              : result === 'unavailable'
+                ? 'Push notifications aren’t available on this device.'
+                : 'Something went wrong. Please check your connection and try again.'
+          );
+        }
+      } else {
+        // Preference off + this device's token removed server-side (a silent
+        // no-op while the push backend wave hasn't landed).
+        await unregisterPush();
+      }
+    } catch {
+      setPushOn(prev);
+    } finally {
+      setPushBusy(false);
     }
   }
 
@@ -185,6 +248,32 @@ export default function SettingsScreen() {
               support="Which method checkout opens on"
               onPress={() => router.push('/account/payments')}
             />
+          </MenuGroup>
+
+          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>NOTIFICATIONS</Text>
+          <MenuGroup>
+            {/* Toggle row like Private account — flips in place, no navigation.
+                Registers/unregisters this device's Expo push token (lib/push.ts).
+                Honest copy: local show reminders are OS alarms, not push, so
+                they keep working with this off. */}
+            <View style={styles.infoRow}>
+              <Ionicons name="notifications-outline" size={22} color={c.primary} />
+              <View style={styles.infoText}>
+                <Text style={[styles.infoLabel, { color: c.text }]}>Push notifications</Text>
+                <Text style={[styles.infoValue, { color: c.textSecondary }]}>
+                  Go-live alerts, auction wins, and order updates on this device.
+                  Show reminders you set yourself still fire either way.
+                </Text>
+              </View>
+              <Switch
+                value={pushOn === true}
+                onValueChange={togglePush}
+                disabled={pushOn === null || pushBusy}
+                accessibilityLabel="Push notifications"
+                trackColor={{ false: 'rgba(120,150,210,0.35)', true: c.primary }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
           </MenuGroup>
 
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>SECURITY</Text>

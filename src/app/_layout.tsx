@@ -19,6 +19,10 @@ import { LogBox, Pressable, ScrollView, Text, View } from 'react-native';
 import { SplashGate } from '@/components/splash-gate';
 import { Colors } from '@/constants/theme';
 import { PolicyGate } from '@/components/policy-gate';
+// Importing push-routing installs the app's single foreground notification
+// handler at boot (module side effect, like registerGlobals below); the hook
+// mounted in RootNavigator does the tap → screen routing.
+import { usePushRouting } from '@/lib/push-routing';
 import { SessionProvider, useSession } from '@/lib/session';
 
 SplashScreen.preventAutoHideAsync();
@@ -141,6 +145,10 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
 
 function RootNavigator({ fontsLoaded }: { fontsLoaded: boolean }) {
   const { isLoading } = useSession();
+  // Notification taps → screens (by data.type, per the Gap 1 spec), including
+  // the cold-start tap that launched the app — routing is deferred inside the
+  // hook until the navigator below has settled.
+  usePushRouting();
   // Failsafe: never wait on init more than a few seconds. A stuck font or auth
   // listener must degrade to system fonts / signed-out UI, not a hang.
   const [forceReady, setForceReady] = useState(false);

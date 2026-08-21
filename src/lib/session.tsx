@@ -10,6 +10,7 @@ import {
   disconnect as disconnectAuctionEngine,
 } from './auction-socket';
 import { auth } from './firebase';
+import { registerForPush, unregisterPush } from './push';
 import { ensureUserProfile, hasClaimedUsername } from './users';
 
 const AuthContext = createContext<{
@@ -51,6 +52,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // what the website does on auth ready. Without it a mobile-first
         // user is invisible to profiles, follows and DMs on both clients.
         ensureUserProfile().catch(() => {});
+        // Register this device for push (fire-and-forget, internally
+        // failure-tolerant — it can never break sign-in). Auth-ready is the
+        // moment the spec picks for the iOS PROVISIONAL permission ask:
+        // first sign-in, never app launch. Skips itself on web/simulators
+        // and when the Settings toggle is off.
+        registerForPush().catch(() => {});
         // Backfill for social accounts created BEFORE the claim-username
         // step existed: they have no handle, so they're unfindable and
         // their deep links can't resolve. Once per account per app session,
@@ -68,7 +75,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       // Sign-out ends it: the socket carries this user's identity and must
       // not survive into whoever signs in next on this device.
-      else disconnectAuctionEngine();
+      else {
+        // Backstop only: the authenticated DELETE already ran in logout()
+        // BEFORE signOut (no ID token exists by the time this fires). Here it
+        // clears the device-local token cache, so a sign-out that bypassed
+        // logout() — token revocation, account disabled — still forces a
+        // fresh POST for whoever signs in next. Never throws.
+        unregisterPush().catch(() => {});
+        disconnectAuctionEngine();
+      }
     });
     return unsubscribe;
   }, []);

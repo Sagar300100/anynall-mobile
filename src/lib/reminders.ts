@@ -29,22 +29,11 @@ export interface ShowReminder {
   fireAtIso: string;
 }
 
-// Foreground behaviour: show the banner even while the app is open — a
-// reminder that silently vanishes because you happened to be in the app is a
-// missed show.
-let handlerSet = false;
-function ensureHandler() {
-  if (handlerSet) return;
-  handlerSet = true;
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
-  });
-}
+// Foreground behaviour (banner even while the app is open, WITH sound for
+// reminders) is owned by the single global handler in lib/push-routing.ts —
+// expo-notifications keeps exactly one handler, and setting a second one here
+// would silently override the remote-push rules (pushes are banner-only in
+// the foreground; reminders keep their sound, keyed off data.type).
 
 async function ensureChannel() {
   if (Platform.OS !== 'android') return;
@@ -58,7 +47,6 @@ async function ensureChannel() {
 
 /** Ask for permission (no-op if already granted). Returns whether we may notify. */
 export async function ensureNotificationPermission(): Promise<boolean> {
-  ensureHandler();
   const settings = await Notifications.getPermissionsAsync();
   if (settings.granted) return true;
   if (!settings.canAskAgain) return false;

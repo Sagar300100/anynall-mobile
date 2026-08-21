@@ -24,6 +24,7 @@ export function ViewerStage({
   displayName,
   posterUrl,
   onLiveEvent,
+  onRoom,
 }: {
   showId: string;
   displayName?: string;
@@ -33,6 +34,11 @@ export function ViewerStage({
    *  MUST be referentially stable — this screen re-renders every second on the
    *  auction tick, and an inline arrow here would resubscribe each time. */
   onLiveEvent?: (event: LiveEvent) => void;
+  /** Hands the screen the Room this stage is holding (null again on unmount)
+   *  so the header's viewer-count pill can watch participants. MUST be
+   *  referentially stable (pass a setState function) — same contract as
+   *  onLiveEvent, for the same 1s-tick reason. */
+  onRoom?: (room: Room | null) => void;
 }) {
   // ADOPT the join, never start it here. The tap handler (or the Live tab's
   // warm-up) already began the token + connect; by the time this screen has
@@ -78,6 +84,17 @@ export function ViewerStage({
       room.off(RoomEvent.DataReceived, handle);
     };
   }, [room, onLiveEvent]);
+
+  // ── Presence hand-off ──
+  // The screen's viewer-count pill subscribes to THIS room's participant
+  // events (LiveKit is the presence system — there is no other one). Both
+  // deps are stable across the screen's 1s re-renders, so this fires once per
+  // stage mount and the cleanup nulls the room out when the stage goes away.
+  useEffect(() => {
+    if (!onRoom) return;
+    onRoom(room);
+    return () => onRoom(null);
+  }, [room, onRoom]);
 
   useEffect(() => {
     let cancelled = false;

@@ -12,9 +12,9 @@
 //   3. Publish camera + mic.
 // Teardown reverses it, and must run on unmount or the mic stays hot.
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { AudioSession, LiveKitRoom, useLocalParticipant, VideoTrack } from '@livekit/react-native';
-import { Track, VideoPresets } from 'livekit-client';
-import { useEffect, useState } from 'react';
+import { AudioSession, LiveKitRoom, RoomContext, useLocalParticipant, VideoTrack } from '@livekit/react-native';
+import { Track, VideoPresets, type Room } from 'livekit-client';
+import { useContext, useEffect, useState } from 'react';
 import { ActivityIndicator, PermissionsAndroid, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { Fonts } from '@/constants/theme';
@@ -38,6 +38,7 @@ export function BroadcastStage({
   displayName,
   onError,
   onFatal,
+  onRoom,
 }: {
   showId: string;
   displayName?: string;
@@ -48,6 +49,11 @@ export function BroadcastStage({
    *  stays marked LIVE with viewers joining an empty room. MUST be
    *  referentially stable, like every prop here. */
   onFatal?: (message: string) => void;
+  /** Hands the owner the connected Room (null again on teardown) so the
+   *  header's viewer pill can watch participants — LiveKit is the presence
+   *  system. MUST be referentially stable (pass a setState function), like
+   *  every prop here. */
+  onRoom?: (room: Room | null) => void;
 }) {
   const [grant, setGrant] = useState<StreamGrant | null>(null);
   const [status, setStatus] = useState<'starting' | 'ready' | 'denied' | 'failed'>('starting');
@@ -137,8 +143,23 @@ export function BroadcastStage({
       onError={(err: Error) => onError?.(streamErrorMessage(err))}
     >
       <LocalCamera />
+      {onRoom ? <RoomTap onRoom={onRoom} /> : null}
     </LiveKitRoom>
   );
+}
+
+/** Reports the Room that LiveKitRoom created (and null on teardown) to the
+ *  stage's owner, via RoomContext — the room object is otherwise internal to
+ *  LiveKitRoom. Renders nothing; `onRoom` is referentially stable per the
+ *  prop contract above, so the effect runs once per broadcast. */
+function RoomTap({ onRoom }: { onRoom: (room: Room | null) => void }) {
+  const room = useContext(RoomContext);
+  useEffect(() => {
+    if (!room) return;
+    onRoom(room);
+    return () => onRoom(null);
+  }, [room, onRoom]);
+  return null;
 }
 
 /** Renders the seller's own camera track once it is published.

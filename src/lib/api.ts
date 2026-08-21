@@ -475,6 +475,19 @@ export async function register(
 
 /** Logout */
 export async function logout() {
+  // Drop this device's push token while the ID token still exists — the
+  // DELETE is authGuarded, so after signOut it can't be sent at all.
+  // Bounded and silent: sign-out must never hang or fail because of push
+  // (unregisterPush swallows everything, including the 404 until the push
+  // backend wave lands). Dynamic import because push.ts statically imports
+  // j() from this module — a static import back would be a cycle.
+  try {
+    const { unregisterPush } = await import("./push");
+    await Promise.race([
+      unregisterPush(),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+  } catch {}
   await signOut(auth);
 }
 

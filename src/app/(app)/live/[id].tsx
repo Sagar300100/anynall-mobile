@@ -19,7 +19,8 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import type { Room } from 'livekit-client';
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -48,6 +49,7 @@ import { ViewerStage } from '@/components/viewer-stage';
 import { WinnerPaymentSheet } from '@/components/winner-payment-sheet';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
+import { useViewerCount } from '@/hooks/use-viewer-count';
 import { useAuthGate } from '@/lib/auth-gate';
 import { sendMessage } from '@/lib/chat';
 import { db } from '@/lib/firebase';
@@ -167,6 +169,11 @@ export default function LiveRoomScreen() {
   // retry: the failed join dropped itself, so a fresh adopt starts clean.
   const [stageEpoch, setStageEpoch] = useState(0);
   const prevLive = useRef<boolean | null>(null);
+  // The LiveKit room ViewerStage is holding — the presence source for the
+  // header's viewer pill. Set once per stage mount (null when the stage is
+  // down), so this state changes on stage lifecycle, never per viewer join:
+  // joins/leaves are the PILL's state (see ViewerCountPill below).
+  const [stageRoom, setStageRoom] = useState<Room | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -644,6 +651,7 @@ export default function LiveRoomScreen() {
             displayName={user?.displayName || user?.email?.split('@')[0] || undefined}
             posterUrl={show?.thumbnail || null}
             onLiveEvent={applyLiveEvent}
+            onRoom={setStageRoom}
           />
         ) : show?.thumbnail ? (
           <Image source={{ uri: show.thumbnail }} style={styles.stageImage} contentFit="cover" />
@@ -754,11 +762,12 @@ export default function LiveRoomScreen() {
             </View>
           </View>
 
-          {/* No presence system exists, so the count is "—", never invented. */}
-          <View style={styles.viewers} accessibilityLabel="Viewers: not available">
-            <Ionicons name="stats-chart" size={14} color="#FFFFFF" />
-            <Text style={styles.viewersText}>—</Text>
-          </View>
+          {/* LiveKit is the presence system: the connected room knows its
+              participants, so this shows remoteParticipants + 1 while live and
+              "—" whenever the stage isn't connected. Isolated like LiveChat —
+              the count is the PILL's state, so a rush of joins re-renders this
+              ~40pt pill and never the screen. */}
+          <ViewerCountPill room={stageRoom} />
 
           <Pressable
             // Deep links and a cold start into a show leave nothing to go back
@@ -1172,6 +1181,24 @@ export default function LiveRoomScreen() {
     </View>
   );
 }
+
+/** The header's viewer pill. The count is ITS state (useViewerCount), so
+ *  participants joining and leaving re-render this pill and nothing else —
+ *  the same isolation as LiveChat. memo + a stable `room` prop (set once per
+ *  stage mount) keep the screen's 1s auction tick from touching it. The
+ *  label stays honest: a number only while actually connected. */
+const ViewerCountPill = memo(function ViewerCountPill({ room }: { room: Room | null }) {
+  const count = useViewerCount(room);
+  return (
+    <View
+      style={styles.viewers}
+      accessibilityLabel={count === null ? 'Viewers: not available' : `Viewers: ${count}`}
+    >
+      <Ionicons name="stats-chart" size={14} color="#FFFFFF" />
+      <Text style={styles.viewersText}>{count === null ? '—' : String(count)}</Text>
+    </View>
+  );
+});
 
 /** One rail entry: a bare icon (or a product tile) with its label underneath.
  *  The reference has no button chrome here — the icons sit straight on the
