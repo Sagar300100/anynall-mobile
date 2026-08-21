@@ -63,7 +63,7 @@ export function flashClock(msLeft: number): string {
  * hook only makes the DISPLAY honest.
  */
 export function useFlashSale(
-  product: Pick<ProductDoc, 'flashSale'>
+  product: Pick<ProductDoc, 'flashSale' | 'price'>
 ): { pricePaise: number; endsAt: string; msLeft: number } | null {
   const flash = activeFlashSale(product);
   const endsAt = flash?.endsAt ?? null;

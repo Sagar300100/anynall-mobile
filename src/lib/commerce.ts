@@ -266,11 +266,22 @@ export const TIP_MAX_PAISE = 10_000 * 100;
  * (100% to the seller, no fee; on verify the server writes the payout row and
  * announces "🎉 X tipped ₹Y" in chat). Returns the SAME checkout order shape
  * as buy-now, so RazorpayCheckout takes it unchanged.
+ *
+ * `idempotencyKey`: one key per tip INTENT (the server runs the full
+ * claim/fence lifecycle on it), so a double-tap or a network retry replays
+ * the same paymentOrder instead of minting another paid-API Razorpay order.
+ * The caller owns the key's lifetime — see TipSheet, which mints per open.
  */
-export function createTipOrder(showId: string, amountPaise: number) {
+export function createTipOrder(showId: string, amountPaise: number, idempotencyKey?: string) {
   return j<BuyNowOrder>(
     `/api/shows/${encodeURIComponent(showId)}/tip`,
-    { method: 'POST', body: JSON.stringify({ amountPaise }) },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        amountPaise,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+      }),
+    },
     true
   );
 }
@@ -308,6 +319,13 @@ export function makeOffer(productId: string, amountPaise: number) {
 // =====================================================
 //                     PAYMENTS
 // =====================================================
+/** GET /api/payments/config — the PUBLIC Razorpay key id for Checkout.
+ *  Needed when the checkout params weren't handed to this device by the
+ *  order-creating call (paying an accepted offer from the orders list). */
+export function getPaymentsConfig() {
+  return j<{ keyId: string; currency: string }>('/api/payments/config', { method: 'GET' });
+}
+
 export interface VerifyPayload {
   razorpay_order_id: string;
   razorpay_payment_id: string;

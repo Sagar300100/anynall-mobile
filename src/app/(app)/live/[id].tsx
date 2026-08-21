@@ -73,6 +73,7 @@ import {
   getCommerceProfile,
   isReadyToBid,
   makeOffer,
+  newIdempotencyKey,
   OFFER_MIN_RATIO,
   TIP_MAX_PAISE,
   TIP_MIN_PAISE,
@@ -83,7 +84,13 @@ import {
 } from '@/lib/commerce';
 import { discountAmountPaise } from '@/lib/credits';
 import { subscribe as engineSubscribe, type EngineAuction } from '@/lib/auction-socket';
-import { enterGiveaway, entryCount, hasEntered, isPermissionDenied } from '@/lib/giveaways';
+import {
+  enterGiveaway,
+  entryCount,
+  hasEntered,
+  isFailedPrecondition,
+  isPermissionDenied,
+} from '@/lib/giveaways';
 import type { LiveEvent } from '@/lib/live-bus';
 import { listenAuctions, listenProducts, type ProductDoc } from '@/lib/realtime';
 import { serverMessage } from '@/lib/seller-hub';
@@ -645,10 +652,15 @@ export default function LiveRoomScreen() {
       });
       setNotice('You’re in! The seller draws the winner live.');
     } catch (err) {
+      // permission-denied = the rules said no (feature not switched on);
+      // failed-precondition = the write's preconditions slipped (the giveaway
+      // changed under the tap) — retrying can succeed, so say so.
       setNotice(
         isPermissionDenied(err)
           ? 'Giveaway entries aren’t switched on for this show yet.'
-          : 'Couldn’t enter the giveaway — please try again.'
+          : isFailedPrecondition(err)
+            ? 'Couldn’t enter — the giveaway just changed. Give it a second and try again.'
+            : 'Couldn’t enter the giveaway — please try again.'
       );
     } finally {
       setEnteringId(null);
@@ -1515,8 +1527,21 @@ function TipSheet({
   const [custom, setCustom] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
   const amountPaise = selected === 'custom' ? rupeesToPaise(custom) : selected;
+
+  // ── Idempotency: ONE key per tip INTENT ──
+  // The server runs the full claim/fence lifecycle on the key, so a
+  // double-tap or network retry inside one open replays the SAME
+  // paymentOrder instead of minting another paid-API Razorpay order. An
+  // intent is (this open of the sheet, this amount): minted lazily at send,
+  // kept while the amount is unchanged (so a retry replays), re-minted on a
+  // changed amount (the server refuses "same key, different tip" as a client
+  // bug), and dropped when the sheet closes — which also covers success,
+  // since a created tip closes the sheet.
+  const intentRef = useRef<{ sig: string; key: string } | null>(null);
+  useEffect(() => {
+    if (!visible) intentRef.current = null;
+  }, [visible]);
   const valid =
     amountPaise != null && amountPaise >= TIP_MIN_PAISE && amountPaise <= TIP_MAX_PAISE;
 
@@ -1525,7 +1550,11 @@ function TipSheet({
     setBusy(true);
     setErr(null);
     try {
-      onCreated(await createTipOrder(showId, amountPaise));
+      const sig = String(amountPaise);
+      if (!intentRef.current || intentRef.current.sig !== sig) {
+        intentRef.current = { sig, key: newIdempotencyKey() };
+      }
+      onCreated(await createTipOrder(showId, amountPaise, intentRef.current.key));
     } catch (e) {
       // The endpoint ships in the backend wave — until then this is the
       // honest failure, with the server's own sentence once it exists.

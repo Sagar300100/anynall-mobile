@@ -238,7 +238,9 @@ function OrderCard({
             setBusy('delivered');
             setErr(null);
             try {
-              await markDelivered(order.id);
+              // No courier booked → declare self-ship; the server otherwise
+              // 409s NO_SHIPMENT. With an AWB the flag is simply not needed.
+              await markDelivered(order.id, { selfShip: !shipment?.awbCode });
               await onChanged();
             } catch (e) {
               setErr(
@@ -497,9 +499,13 @@ function OrderCard({
             )}
           </Pressable>
         )}
-        {/* Seller fallback for self-ship/COD: an order marked shipped with no
-            courier booked has no webhook to stamp delivery — the seller does. */}
-        {order.status === 'shipped' && !shipment?.awbCode && !order.deliveredAt && (
+        {/* Seller fallback for self-ship/COD/missed webhooks: any PAID order
+            without a delivered stamp can be marked delivered by the seller —
+            the backend never writes status 'shipped' (shipping updates only
+            shipment.status), and even AWB-booked orders need this when the
+            courier webhook never fires. The confirm dialog owns the "starts
+            the buyer's 24h window" consequence. */}
+        {paid && !order.deliveredAt && (
           <Pressable
             onPress={confirmMarkDelivered}
             disabled={busy !== null}
@@ -514,7 +520,7 @@ function OrderCard({
             {busy === 'delivered' ? (
               <ActivityIndicator size="small" color={c.text} />
             ) : (
-              <Text style={[styles.actionText, { color: c.text }]}>Mark delivered</Text>
+              <Text style={[styles.actionText, { color: c.text }]}>Mark as delivered</Text>
             )}
           </Pressable>
         )}

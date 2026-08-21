@@ -850,7 +850,12 @@ function FlashCell({
   /** Called with the running flash's price (the /flash body needs one). */
   onEndEarly: (pricePaise: number) => void;
 }) {
-  const flash = useFlashSale({ flashSale });
+  // Seller-side: the chip must show ANY running flash — even one the charge
+  // path would refuse (e.g. the list price was edited to below the flash
+  // price) — because tapping the chip is the only end-early control.
+  // Infinity disables activeFlashSale's buyer-display price clamp while
+  // keeping the integer/₹1-minimum/time checks.
+  const flash = useFlashSale({ flashSale, price: Number.POSITIVE_INFINITY });
   if (flash) {
     return (
       <Pressable

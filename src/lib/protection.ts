@@ -114,11 +114,15 @@ export function fileComplaint(
 
 /** Seller fallback for COD/self-ship: stamp the order delivered NOW
  *  (POST /api/orders/:id/delivered). Starts the buyer's 24h window — the
- *  confirm dialog in the UI must make that consequence explicit. */
-export function markDelivered(orderId: string) {
+ *  confirm dialog in the UI must make that consequence explicit.
+ *
+ *  `selfShip: true` declares "no courier was ever booked, I delivered this
+ *  myself" — the server requires an AWB or that flag (409 NO_SHIPMENT
+ *  otherwise), so callers pass it whenever the order has no awbCode. */
+export function markDelivered(orderId: string, opts?: { selfShip?: boolean }) {
   return j<{ ok: boolean; deliveredAt?: string; complaintWindowEndsAt?: string }>(
     `/api/orders/${encodeURIComponent(orderId)}/delivered`,
-    { method: 'POST', body: JSON.stringify({}) },
+    { method: 'POST', body: JSON.stringify(opts?.selfShip ? { selfShip: true } : {}) },
     true
   );
 }

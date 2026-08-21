@@ -238,6 +238,19 @@ export interface BuyerOrder {
   creditApplied?: number;
   /** First-purchase discount recorded on the order (paise, or { amountPaise }). */
   firstBuyDiscount?: number | { amountPaise?: number; percent?: number } | null;
+  // ── Pay-a-pending-order (Gap 8) — the order rows carry the Razorpay order
+  //    so the buyer can pay an order created FOR them (an accepted offer: no
+  //    checkout params ever reached their device). keyId comes from GET
+  //    /api/payments/config; the normal Checkout → /verify flow does the rest.
+  /** Razorpay order id, present while the order is payable. */
+  rzpOrderId?: string | null;
+  /** ISO — the payment window's hard edge; pay only while it's in the future. */
+  paymentWindowExpiresAt?: string | null;
+  /** buy_now | auction_win | offer | giveaway — how this order came to be. */
+  purchaseType?: string;
+  /** True when the order was created without a delivery address (giveaway
+   *  win, offer from a buyer with no saved address). */
+  needsAddress?: boolean;
 }
 
 /** The signed-in buyer's orders, newest first (GET /api/orders/mine). */
@@ -248,6 +261,22 @@ export async function listMyOrders(): Promise<BuyerOrder[]> {
     true
   );
   return Array.isArray(data?.orders) ? data.orders : [];
+}
+
+/** One order by id (GET /api/orders/:id) — the deep-link fallback when the
+ *  order isn't in the first page of /orders/mine. Defensive about the
+ *  envelope ({ order } or the bare object); 404 propagates as j()'s error
+ *  so callers can distinguish "not yours" from a network failure. */
+export async function getMyOrder(orderId: string): Promise<BuyerOrder | null> {
+  const data = await j<BuyerOrder | { order?: BuyerOrder }>(
+    `/api/orders/${encodeURIComponent(orderId)}`,
+    { method: "GET" },
+    true
+  );
+  const o = (data as { order?: BuyerOrder })?.order ?? (data as BuyerOrder);
+  return o && typeof o === "object" && typeof (o as { id?: unknown }).id === "string"
+    ? (o as BuyerOrder)
+    : null;
 }
 
 // =====================================================

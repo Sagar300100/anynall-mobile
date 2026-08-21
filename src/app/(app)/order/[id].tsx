@@ -8,7 +8,6 @@
 // page, the full activity timeline, and a jump into chat with the seller.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { doc, getDoc } from 'firebase/firestore';
-import { getMetadata, ref as storageRef } from 'firebase/storage';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
@@ -24,13 +23,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PayNowButton, orderAwaitingPayment } from '@/components/pay-now';
 import { UnboxingRecorder } from '@/components/unboxing-recorder';
 import { PrimaryButton, useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
-import { listMyOrders, type BuyerOrder } from '@/lib/api';
+import { getMyOrder, listMyOrders, type BuyerOrder } from '@/lib/api';
 import { humanizeStatus } from '@/lib/commerce';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
-import { auth, db, storage } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
 import {
   COMPLAINT_CATEGORIES,
   COMPLAINT_NOTE_MAX,
@@ -43,7 +43,7 @@ import {
 } from '@/lib/protection';
 import { msUntil } from '@/lib/server-time';
 import { trackOrder, SHIP_STAGE, type TrackingInfo } from '@/lib/shipping';
-import { unboxingStoragePath } from '@/lib/unboxing';
+import { latestUnboxingPath } from '@/lib/unboxing';
 
 function rupees(paise: number) {
   return `₹${((paise ?? 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -110,17 +110,32 @@ export default function BuyerOrderDetailScreen() {
   // pre-complaint, only local state does).
   const [savedVideoPath, setSavedVideoPath] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  // Bumped after a Pay-now success so the effect refetches the paid order.
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     (async () => {
-      // No per-order buyer endpoint exists — refetch the list and pick the
-      // order out, so a cold deep-link works too.
+      // The list is the fast path (one request also warms the Orders screen);
+      // an order outside its first page — an old deep link, a push target on
+      // a busy account — falls back to the per-order GET, the authority.
       try {
         const orders = await listMyOrders();
         if (cancelled) return;
-        const found = orders.find((o) => o.id === String(id)) || null;
+        let found = orders.find((o) => o.id === String(id)) || null;
+        if (!found) {
+          try {
+            found = await getMyOrder(String(id));
+          } catch (e) {
+            // Only the direct fetch's 404 means "not on this account" (or the
+            // route hasn't deployed — same honest floor). Anything else is a
+            // load failure, not proof the order doesn't exist.
+            if (!isEndpointMissing(e)) throw e;
+            found = null;
+          }
+        }
+        if (cancelled) return;
         setOrder(found);
         setNotFound(!found);
         // Auto-load tracking when a courier is booked.
@@ -142,23 +157,28 @@ export default function BuyerOrderDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, refreshKey]);
 
-  // Seed the recorder with an already-uploaded take: the canonical path is
-  // deterministic (unboxing/{uid}/{orderId}/video.mp4), so ONE metadata probe
-  // says whether this buyer already saved a video for this order. Every
-  // failure (no video yet, Storage rules not deployed) leaves the recorder
-  // idle — never an error, the buyer just records fresh. A dispute doc's own
-  // videoPath needs no probe: it's DERIVED at render, never synced here.
+  /** Pay-now succeeded (server-verified): flip the local status immediately
+   *  so the window closes on screen, then refetch for the real stamps. */
+  const handlePaid = useCallback(() => {
+    setOrder((prev) => (prev ? { ...prev, status: 'paid' } : prev));
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  // Seed the recorder with an already-uploaded take. Recordings are
+  // CREATE-ONLY with timestamped names (evidence can't be overwritten once a
+  // seller may be reviewing it), so the probe LISTS the order's folder and
+  // takes the newest. Every failure (no video yet, Storage rules not
+  // deployed) leaves the recorder idle — never an error, the buyer just
+  // records fresh. A dispute doc's own videoPath needs no probe: it's
+  // DERIVED at render, never synced here.
   useEffect(() => {
     if (!order || order.protection?.status !== 'in_window' || order.dispute?.videoPath) return;
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
     let cancelled = false;
-    const path = unboxingStoragePath(uid, order.id);
-    getMetadata(storageRef(storage, path))
-      .then(() => {
-        if (!cancelled) setSavedVideoPath((p) => p || path);
+    latestUnboxingPath(order.id)
+      .then((path) => {
+        if (!cancelled && path) setSavedVideoPath((p) => p || path);
       })
       .catch(() => {
         /* no saved video — the recorder starts idle */
@@ -263,7 +283,11 @@ export default function BuyerOrderDetailScreen() {
           <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
             <Text style={[styles.productTitle, { color: c.text }]}>{order.productTitle}</Text>
             <View style={styles.metaRow}>
-              <Text style={[styles.amount, { color: c.text }]}>{rupees(order.amount)}</Text>
+              <Text style={[styles.amount, { color: c.text }]}>
+                {order.purchaseType === 'giveaway' && !(order.amount > 0)
+                  ? 'Giveaway — free'
+                  : rupees(order.amount)}
+              </Text>
               <View style={[styles.pill, { borderColor: c.primary }]}>
                 <Text style={[styles.pillText, { color: c.primary }]}>
                   {ORDER_STATUS_LABEL[order.status] || humanizeStatus(order.status)}
@@ -283,18 +307,56 @@ export default function BuyerOrderDetailScreen() {
             )}
           </View>
 
+          {/* ── Pay now (Gap 8): an order created FOR this buyer — an accepted
+                 offer, or a buy-now whose checkout was dismissed — still owes
+                 payment. Countdown + checkout live in PayNowButton. */}
+          {orderAwaitingPayment(order) && (
+            <>
+              <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>
+                COMPLETE YOUR PAYMENT
+              </Text>
+              <View
+                style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+              >
+                <Text style={[styles.body, { color: c.textSecondary }]}>
+                  One unit is reserved for you. Pay before the window ends or the reservation is
+                  released.
+                </Text>
+                <PayNowButton order={order} onPaid={handlePaid} />
+              </View>
+            </>
+          )}
+
           {/* ── Shipment ── */}
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>DELIVERY</Text>
           <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
             {!shipment?.awbCode ? (
-              <View style={styles.emptyShip}>
-                <Ionicons name="cube-outline" size={22} color={c.textFaint} />
-                <Text style={[styles.body, { color: c.textSecondary }]}>
-                  {order.status === 'paid' || order.status === 'confirmed'
-                    ? 'The seller hasn’t shipped this yet — tracking appears here the moment a courier is booked.'
-                    : 'No shipment on this order.'}
-                </Text>
-              </View>
+              order.needsAddress === true ? (
+                // The order exists without a delivery address (giveaway win,
+                // offer accepted before one was saved) — v1: save the profile
+                // address, the seller collects it from there.
+                <Pressable
+                  onPress={() => router.push('/account/address')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add your delivery address so the seller can ship"
+                  style={({ pressed }) => [styles.emptyShip, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Ionicons name="location-outline" size={22} color={c.primary} />
+                  <Text style={[styles.body, { color: c.textSecondary, flex: 1 }]}>
+                    Add your delivery address so the seller can ship.
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={c.textFaint} />
+                </Pressable>
+              ) : (
+                <View style={styles.emptyShip}>
+                  <Ionicons name="cube-outline" size={22} color={c.textFaint} />
+                  <Text style={[styles.body, { color: c.textSecondary }]}>
+                    {order.status === 'paid' || order.status === 'confirmed'
+                      ? 'The seller hasn’t shipped this yet — tracking appears here the moment a courier is booked.'
+                      : 'No shipment on this order.'}
+                  </Text>
+                </View>
+              )
             ) : (
               <>
                 <View style={styles.awbRow}>

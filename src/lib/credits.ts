@@ -46,6 +46,12 @@ export function referralRedeemError(err: unknown): { message: string; terminal: 
     };
   }
   const m = text.match(/"message"\s*:\s*"([^"]+)"/);
+  if (/MUTUAL_REFERRAL/i.test(text)) {
+    return {
+      message: 'You can’t use the code of someone you referred — pick a different code.',
+      terminal: false,
+    };
+  }
   if (/ALREADY|REDEEMED|REFERRED/i.test(text)) {
     return {
       message: m?.[1] ?? 'A referral code was already applied to this account.',

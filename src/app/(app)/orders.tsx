@@ -12,12 +12,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PayNowButton, orderAwaitingPayment } from '@/components/pay-now';
 import { DisplayText, useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { listMyOrders, type BuyerOrder } from '@/lib/api';
 import { humanizeStatus } from '@/lib/commerce';
 
 function formatAmount(order: BuyerOrder) {
+  // A giveaway win is a real order with nothing owed — "₹0" reads like a
+  // billing glitch, so say what it is.
+  if (order.purchaseType === 'giveaway' && !(order.amount > 0)) return 'Giveaway — free';
   const rupees = (order.amount ?? 0) / 100; // paise → ₹, Razorpay convention
   return `₹${rupees.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
@@ -135,6 +139,31 @@ export default function OrdersScreen() {
                   </Text>
                   <Ionicons name="chevron-forward" size={14} color={c.textFaint} />
                 </View>
+              )}
+              {/* The order has no delivery address yet (giveaway win, offer
+                  accepted before one was saved) — v1: save the profile
+                  address, the seller collects it from there. */}
+              {item.needsAddress === true && !item.shipment?.awbCode && (
+                <Pressable
+                  onPress={() => router.push('/account/address')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add your delivery address so the seller can ship"
+                  style={({ pressed }) => [
+                    styles.shipRow,
+                    { borderTopColor: c.border, opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Ionicons name="location-outline" size={15} color={c.primary} />
+                  <Text style={[styles.shipText, { color: c.textSecondary }]}>
+                    Add your delivery address so the seller can ship
+                  </Text>
+                  <Ionicons name="chevron-forward" size={14} color={c.textFaint} />
+                </Pressable>
+              )}
+              {/* Pay-now (Gap 8): an accepted offer creates the order server-
+                  side, so this list is the buyer's checkout entry point. */}
+              {orderAwaitingPayment(item) && (
+                <PayNowButton order={item} onPaid={() => load(true)} />
               )}
             </Pressable>
           )}

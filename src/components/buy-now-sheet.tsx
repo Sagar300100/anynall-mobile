@@ -52,14 +52,21 @@ interface Props {
 // order with a dismissed checkout must still replay on retry). The parent
 // calls clearBuyNowIntent there, so the NEXT purchase of the same product
 // mints fresh.
-const intentKeys = new Map<string, string>();
+//
+// The key is also scoped to the CREDIT TOGGLE: the server's idempotency
+// fingerprint includes useCredit, so replaying a stored key with a flipped
+// toggle 409s (and before that fencing, it silently replayed the ORIGINAL
+// order — charging a different amount than the Pay button showed). Flipping
+// the toggle after a dismissed/failed attempt is a NEW intent: mint fresh.
+// The old reservation's order simply expires server-side, like any other
+// abandoned pending_payment order.
+const intentKeys = new Map<string, { key: string; useCredit: boolean }>();
 
-function intentKeyFor(productId: string): string {
-  let key = intentKeys.get(productId);
-  if (!key) {
-    key = newIdempotencyKey();
-    intentKeys.set(productId, key);
-  }
+function intentKeyFor(productId: string, useCredit: boolean): string {
+  const cur = intentKeys.get(productId);
+  if (cur && cur.useCredit === useCredit) return cur.key;
+  const key = newIdempotencyKey();
+  intentKeys.set(productId, { key, useCredit });
   return key;
 }
 
@@ -106,9 +113,11 @@ export function BuyNowSheet({
     setBusy(true);
     setErr(null);
     try {
-      // The intent key: same product → same key until the purchase succeeds.
-      const key = intentKeyFor(product.id);
-      const order = await createBuyNowOrder(product.id, address, key, useCredit && creditPreview > 0);
+      // The intent key: same product + same credit choice → same key until
+      // the purchase succeeds; a changed toggle mints a fresh key (see above).
+      const wantCredit = useCredit && creditPreview > 0;
+      const key = intentKeyFor(product.id, wantCredit);
+      const order = await createBuyNowOrder(product.id, address, key, wantCredit);
       onOrderCreated(order);
     } catch (e: any) {
       const text = String(e?.message || '');

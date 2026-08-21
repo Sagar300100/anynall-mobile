@@ -14,7 +14,7 @@
 // the same honest "Couldn’t save the video — try again." copy, never a
 // silent failure.
 import * as ImagePicker from 'expo-image-picker';
-import { ref as storageRef, uploadBytesResumable } from 'firebase/storage';
+import { listAll, ref as storageRef, uploadBytesResumable } from 'firebase/storage';
 import { Alert, Linking } from 'react-native';
 
 import { auth, storage } from '@/lib/firebase';
@@ -22,9 +22,29 @@ import { auth, storage } from '@/lib/firebase';
 /** Server-side contract: complaints accept videos of up to 3 minutes. */
 export const UNBOXING_MAX_SECONDS = 180;
 
-/** The canonical Storage path the complaint endpoint validates against. */
+/** A NEW path per recording attempt. Storage rules are CREATE-ONLY for
+ *  unboxing evidence (uploads can never overwrite what a seller may already
+ *  be reviewing), so a fixed filename would make every re-record fail — each
+ *  attempt gets a timestamped name under the folder the complaint endpoint
+ *  validates (`unboxing/{uid}/{orderId}/…`). */
 export function unboxingStoragePath(uid: string, orderId: string): string {
-  return `unboxing/${uid}/${orderId}/video.mp4`;
+  return `unboxing/${uid}/${orderId}/video-${Date.now()}.mp4`;
+}
+
+/** The most recent existing recording for this order, or null. Used to seed
+ *  the recorder's "already saved" state across app restarts. */
+export async function latestUnboxingPath(orderId: string): Promise<string | null> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return null;
+  try {
+    const folder = await listAll(storageRef(storage, `unboxing/${uid}/${orderId}`));
+    if (folder.items.length === 0) return null;
+    // Timestamped names sort chronologically; last = newest.
+    const names = folder.items.map((i) => i.fullPath).sort();
+    return names[names.length - 1];
+  } catch {
+    return null;
+  }
 }
 
 /** Same camera/permission idiom as use-profile-photo: explain and offer the

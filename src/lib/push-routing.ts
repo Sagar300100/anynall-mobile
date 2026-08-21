@@ -49,9 +49,19 @@ function pathForNotification(data: Record<string, unknown> | null | undefined): 
       // auction_won also carries auctionId; the live room itself resolves the
       // winner payment sheet, so the show route covers both types.
       return showId ? `/live/${showId}` : null;
-    case 'order_delivered':
-    case 'order_disputed':
+    case 'offer_accepted':
+      // The acceptance created a pending order the BUYER must now pay — the
+      // buyer order screen carries the Pay-now flow. The backend sends
+      // orderId (offersRouter accept push); without it, open-app is the floor.
       return orderId ? `/order/${orderId}` : null;
+    case 'order_delivered':
+      // Buyer: the 24h protection window + unboxing recorder live here.
+      return orderId ? `/order/${orderId}` : null;
+    case 'order_disputed':
+      // Sent to the SELLER only (complaint push) — their dispute banner and
+      // resolve actions live on the selling screen. The buyer order screen
+      // can't even load someone else's order, so routing there dead-ends.
+      return '/seller-orders';
     case 'payout_released':
       return '/seller-orders';
     case null:

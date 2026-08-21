@@ -36,7 +36,11 @@ export async function enterGiveaway(showId: string, productId: string): Promise<
     {
       productId,
       uid: u.uid,
-      name: u.displayName || u.email?.split('@')[0] || 'buyer',
+      // Rules cap name at 60 chars (firestore.rules giveawayEntries block) and
+      // a rules refusal reads as "entries aren't switched on" — so a long
+      // display name must be clamped HERE, the same slice the server's own
+      // name handling applies, or such users can never enter.
+      name: (u.displayName || u.email?.split('@')[0] || 'buyer').slice(0, 60),
       createdAt: serverTimestamp(),
     }
   );
@@ -68,4 +72,12 @@ export async function entryCount(showId: string, productId: string): Promise<num
  *  yet" rather than "try again". */
 export function isPermissionDenied(err: unknown): boolean {
   return (err as { code?: string } | null)?.code === 'permission-denied';
+}
+
+/** Firestore's failed-precondition — the write's preconditions don't hold
+ *  right now (e.g. the giveaway product changed under the entry). Distinct
+ *  from permission-denied: retrying can genuinely succeed, so callers must
+ *  not present it as "the feature isn't enabled". */
+export function isFailedPrecondition(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === 'failed-precondition';
 }

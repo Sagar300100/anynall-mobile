@@ -60,12 +60,19 @@ export function flashEndsAtIso(f: { endsAt: unknown } | null | undefined): strin
 
 /** The product's flash sale IF it is still running (by the server-corrected
  *  clock), normalised to { pricePaise, endsAt: ISO }. Null once expired or
- *  absent — display logic never has to reason about clock skew itself. */
+ *  absent — display logic never has to reason about clock skew itself.
+ *
+ *  Mirrors the server's charge-time sanity clamp (ordersRouter flashActive):
+ *  integer paise, at least ₹1 (MIN_PAISE=100), strictly below the CURRENT
+ *  list price. Without the list-price bound, a seller editing the price
+ *  under a running flash leaves the client showing a "flash" price the
+ *  server will refuse to charge. */
 export function activeFlashSale(
-  p: Pick<ProductDoc, 'flashSale'>
+  p: Pick<ProductDoc, 'flashSale' | 'price'>
 ): { pricePaise: number; endsAt: string } | null {
   const f = p.flashSale;
-  if (!f || typeof f.pricePaise !== 'number' || f.pricePaise <= 0) return null;
+  if (!f || !Number.isInteger(f.pricePaise) || f.pricePaise < 100) return null;
+  if (f.pricePaise >= (p.price || 0)) return null;
   const endsAt = flashEndsAtIso(f);
   if (!endsAt || msUntil(endsAt) <= 0) return null;
   return { pricePaise: f.pricePaise, endsAt };
