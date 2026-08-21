@@ -35,6 +35,7 @@ import {
   USERNAME_HELPER,
 } from '@/hooks/use-username-availability';
 import { claimUsername } from '@/lib/api';
+import { redeemReferral, referralRedeemError } from '@/lib/credits';
 import { useSession } from '@/lib/session';
 import { ensureUserProfile, hasClaimedUsername } from '@/lib/users';
 
@@ -52,6 +53,30 @@ export default function ClaimUsernameScreen() {
   const [alternatives, setAlternatives] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Referral code (spec Gap 6) — collapsed under the CTA ──
+  // Redeeming links the accounts now; the credit itself only lands after the
+  // first PAID order, which is exactly what the success copy says.
+  const [refOpen, setRefOpen] = useState(false);
+  const [refCode, setRefCode] = useState('');
+  const [refBusy, setRefBusy] = useState(false);
+  const [refErr, setRefErr] = useState<string | null>(null);
+  const [refDone, setRefDone] = useState(false);
+
+  async function applyReferral() {
+    const code = refCode.trim();
+    if (!code || refBusy || refDone) return;
+    setRefBusy(true);
+    setRefErr(null);
+    try {
+      await redeemReferral(code);
+      setRefDone(true);
+    } catch (e) {
+      setRefErr(referralRedeemError(e).message);
+    } finally {
+      setRefBusy(false);
+    }
+  }
 
   // Only a signed-in user can claim; anyone else has nothing to do here.
   useEffect(() => {
@@ -198,6 +223,68 @@ export default function ClaimUsernameScreen() {
             loading={busy}
           />
 
+          {/* Referral code (spec Gap 6): collapsed by default — most people
+              don't have one, so the sign-up flow stays one decision long. */}
+          {refDone ? (
+            <View style={styles.refDoneRow}>
+              <Ionicons name="checkmark-circle" size={16} color={c.primary} />
+              <Text style={[styles.refDoneText, { color: c.textSecondary }]}>
+                Code applied — the credit for you both lands after your first purchase.
+              </Text>
+            </View>
+          ) : !refOpen ? (
+            <Pressable
+              onPress={() => setRefOpen(true)}
+              hitSlop={8}
+              style={styles.refToggle}
+              accessibilityRole="button"
+              accessibilityLabel="Enter a referral code"
+            >
+              <Text style={[styles.refToggleText, { color: c.textSecondary }]}>
+                Have a referral code?
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.refBlock}>
+              <View
+                style={[
+                  styles.refField,
+                  { borderColor: c.border, backgroundColor: c.backgroundElement },
+                ]}
+              >
+                <Text style={[styles.at, { color: c.textSecondary }]}>@</Text>
+                <TextInput
+                  value={refCode}
+                  onChangeText={setRefCode}
+                  placeholder="friendshandle"
+                  placeholderTextColor={c.textSecondary}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={30}
+                  style={[styles.refInput, { color: c.text }]}
+                  accessibilityLabel="Referral code"
+                  onSubmitEditing={applyReferral}
+                  returnKeyType="done"
+                />
+                <Pressable
+                  onPress={applyReferral}
+                  disabled={!refCode.trim() || refBusy}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Apply referral code"
+                  style={({ pressed }) => ({
+                    opacity: pressed || !refCode.trim() || refBusy ? 0.5 : 1,
+                  })}
+                >
+                  <Text style={[styles.refApply, { color: c.primary }]}>
+                    {refBusy ? 'Applying…' : 'Apply'}
+                  </Text>
+                </Pressable>
+              </View>
+              {!!refErr && <Text style={[styles.refError, { color: c.danger }]}>{refErr}</Text>}
+            </View>
+          )}
+
           <Pressable onPress={leave} hitSlop={8} style={styles.skip} accessibilityRole="button">
             <Text style={[styles.skipText, { color: c.textSecondary }]}>
               I’ll do this later
@@ -244,4 +331,29 @@ const styles = StyleSheet.create({
   altText: { fontSize: 14, fontFamily: Fonts.sansSemiBold },
   skip: { alignSelf: 'center', paddingVertical: Spacing.two },
   skipText: { fontSize: 13.5, fontFamily: Fonts.sans },
+
+  // ── Referral code ──
+  refToggle: { alignSelf: 'center', paddingVertical: Spacing.one },
+  refToggleText: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  refBlock: { gap: Spacing.one },
+  refField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    minHeight: 48,
+  },
+  refInput: { flex: 1, fontSize: 15, fontFamily: Fonts.sans, padding: 0 },
+  refApply: { fontSize: 13.5, fontFamily: Fonts.sansSemiBold, paddingVertical: 6 },
+  refError: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 17 },
+  refDoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    paddingVertical: Spacing.one,
+  },
+  refDoneText: { flexShrink: 1, fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 17 },
 });

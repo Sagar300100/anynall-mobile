@@ -54,6 +54,11 @@ export interface SellerProduct {
   /** Seller-private margin data; absent unless they set one. */
   costPaise: number | null;
   createdAtMs: number;
+  /** Gap 8 (additive) — present once the backend returns them. Flash sale on
+   *  the product doc; endsAt may be ISO or a Firestore Timestamp shape. */
+  flashSale?: { pricePaise: number; endsAt: unknown } | null;
+  /** Set by the server once the giveaway has been drawn. */
+  giveawayWinner?: { uid: string; name: string; drawnAt?: unknown } | null;
 }
 
 export interface SellingOrder {
@@ -75,6 +80,16 @@ export interface SellingOrder {
   shipment: import('./shipping').Shipment | null;
   createdAt: string | null;
   createdAtMs: number;
+  // ── Buyer protection (spec Gap 2) — additive, absent until the backend
+  //    wave stamps them on the order docs. See lib/protection.ts.
+  /** ISO — Shiprocket webhook or the seller's own "mark delivered". */
+  deliveredAt?: string | null;
+  /** ISO — deliveredAt + 24h. */
+  complaintWindowEndsAt?: string | null;
+  /** `{ status: in_window|disputed|released|refunded_pending }`. */
+  protection?: import('./protection').OrderProtection | null;
+  /** The buyer's filed complaint — category/note/videoPath/filedAt. */
+  dispute?: import('./protection').OrderDispute | null;
 }
 
 /** `all=1` returns every row; the default collapses duplicate title+price
@@ -323,6 +338,95 @@ export function detachProductFromShow(productId: string) {
   return j<{ ok: boolean; productId: string }>(
     `/api/products/${encodeURIComponent(productId)}/detach-show`,
     { method: 'POST' },
+    true
+  );
+}
+
+// =====================================================
+//        GAP 8 — GIVEAWAY DRAW, OFFERS, FLASH SALES
+// =====================================================
+
+/** POST /api/shows/:id/giveaways/:productId/draw (seller-only) — the server
+ *  picks one entry at random, writes product.giveawayWinner, announces the
+ *  winner in chat (canonical chat doc) and creates the zero-amount
+ *  type:'giveaway' order so shipping shows up in both order lists. */
+export function drawGiveawayWinner(showId: string, productId: string) {
+  return j<{ ok: boolean; winner: { uid: string; name: string }; orderId?: string }>(
+    `/api/shows/${encodeURIComponent(showId)}/giveaways/${encodeURIComponent(productId)}/draw`,
+    { method: 'POST', body: JSON.stringify({}) },
+    true
+  );
+}
+
+/** One row of GET /api/offers/mine — the offers/{autoId} doc shape from the
+ *  spec plus the display fields the listing panel needs. Everything beyond
+ *  the spec's core fields is optional so a leaner backend response still
+ *  renders. */
+export interface OfferRecord {
+  id: string;
+  productId: string;
+  showId?: string | null;
+  productTitle?: string;
+  buyerName?: string | null;
+  /** Paise — what the buyer offered. */
+  amountPaise: number;
+  /** Paise — the product's list price, for the "vs list" comparison. */
+  listPricePaise?: number;
+  /** open | accepted | declined | expired */
+  status: string;
+  createdAt?: string | null;
+  /** Creation + 24h. */
+  expiresAt?: string | null;
+}
+
+/** GET /api/offers/mine?role=seller&status=open — the seller's open offers. */
+export function getOpenOffers(role: 'seller' | 'buyer' = 'seller', status = 'open') {
+  return j<{ offers: OfferRecord[] }>(
+    `/api/offers/mine?role=${role}&status=${encodeURIComponent(status)}`,
+    undefined,
+    true
+  );
+}
+
+/** POST /api/offers/:id/accept — creates a payment-window order at the offer
+ *  price (winner-order mechanics: reservation + 30-min window + push to the
+ *  buyer). The created order rides back in the response. */
+export function acceptOffer(offerId: string) {
+  return j<{
+    ok: boolean;
+    orderId?: string;
+    order?: { id?: string; amount?: number };
+    paymentWindowExpiresAt?: string;
+  }>(
+    `/api/offers/${encodeURIComponent(offerId)}/accept`,
+    { method: 'POST', body: JSON.stringify({}) },
+    true
+  );
+}
+
+/** POST /api/offers/:id/decline. */
+export function declineOffer(offerId: string) {
+  return j<{ ok: boolean }>(
+    `/api/offers/${encodeURIComponent(offerId)}/decline`,
+    { method: 'POST', body: JSON.stringify({}) },
+    true
+  );
+}
+
+/** Flash-sale window the spec's route accepts. */
+export const FLASH_MINUTES_MIN = 1;
+export const FLASH_MINUTES_MAX = 60;
+
+/** POST /api/products/:id/flash { pricePaise, minutes } (seller, in-show) —
+ *  writes product.flashSale = { pricePaise, endsAt }; buy-now then charges
+ *  the flash price server-side while now < endsAt. `minutes: 0` asks the
+ *  server to CLEAR an active flash early — the spec only defines 1–60, so
+ *  the backend may reject it; callers fail soft (the flash lapses on its
+ *  own endsAt regardless). */
+export function setFlashSale(productId: string, pricePaise: number, minutes: number) {
+  return j<{ ok: boolean; flashSale: { pricePaise: number; endsAt: string } | null }>(
+    `/api/products/${encodeURIComponent(productId)}/flash`,
+    { method: 'POST', body: JSON.stringify({ pricePaise, minutes }) },
     true
   );
 }

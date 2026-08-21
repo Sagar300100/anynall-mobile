@@ -81,8 +81,16 @@ export function finalizeAuction(auctionId: string) {
   );
 }
 
-/** Winner-only: create/reuse the Razorpay order for the winning amount. */
-export function createAuctionWinnerOrder(auctionId: string, shipping?: ShippingAddress) {
+/** Winner-only: create/reuse the Razorpay order for the winning amount.
+ *  `useCredit` (spec Gap 6, additive) asks the server to deduct referral
+ *  credit transactionally; the returned `amount` is then the discounted
+ *  remainder Razorpay charges, with `creditApplied`/`firstBuyDiscount`
+ *  surfaced for display when present. */
+export function createAuctionWinnerOrder(
+  auctionId: string,
+  shipping?: ShippingAddress,
+  useCredit?: boolean
+) {
   return j<{
     orderId: string;
     commerceOrderId: string;
@@ -92,9 +100,19 @@ export function createAuctionWinnerOrder(auctionId: string, shipping?: ShippingA
     productTitle: string;
     paymentWindowExpiresAt: string;
     customerId?: string | null;
+    /** Paise of referral credit the server deducted (absent/0 = none). */
+    creditApplied?: number;
+    /** First-purchase discount, when the server applied one. */
+    firstBuyDiscount?: number | { amountPaise?: number; percent?: number } | null;
   }>(
     `/api/auctions/${auctionId}/winner-order`,
-    { method: 'POST', body: JSON.stringify(shipping ? { shipping } : {}) },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(shipping ? { shipping } : {}),
+        ...(useCredit ? { useCredit: true } : {}),
+      }),
+    },
     true
   );
 }
@@ -129,6 +147,10 @@ export interface CommerceProfile {
   unpaidWins: number;
   maxUnpaidWins: number;
   emailVerified: boolean;
+  /** Referral credit balance in paise (spec Gap 6) — additive; absent until
+   *  the backend wave surfaces users/{uid}.creditPaise here. Missing = 0,
+   *  and 0 hides every credit affordance. */
+  creditPaise?: number;
 }
 
 /** May this buyer purchase from this show's seller?
@@ -185,11 +207,15 @@ export function isReadyToBid(p: CommerceProfile | null): boolean {
 export interface BuyNowOrder {
   orderId: string;
   commerceOrderId: string;
-  amount: number; // paise (product price + seller's shipping fee)
+  amount: number; // paise (product price + seller's shipping fee, minus any credit/discount)
   currency: 'INR';
   keyId: string;
   productTitle: string;
   customerId?: string | null;
+  /** Paise of referral credit the server deducted (spec Gap 6; absent/0 = none). */
+  creditApplied?: number;
+  /** First-purchase discount, when the server applied one (spec Gap 6). */
+  firstBuyDiscount?: number | { amountPaise?: number; percent?: number } | null;
 }
 
 /**
@@ -207,7 +233,11 @@ export interface BuyNowOrder {
 export function createBuyNowOrder(
   productId: string,
   shipping: ShippingAddress,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  /** Spec Gap 6 (additive): ask the server to spend referral credit on this
+   *  order. The deduction happens inside the server's idempotency fencing —
+   *  replays with the same key never double-deduct. */
+  useCredit?: boolean
 ) {
   return j<BuyNowOrder>(
     '/api/orders/buy-now',
@@ -217,8 +247,60 @@ export function createBuyNowOrder(
         productId,
         shipping,
         ...(idempotencyKey ? { idempotencyKey } : {}),
+        ...(useCredit ? { useCredit: true } : {}),
       }),
     },
+    true
+  );
+}
+
+// =====================================================
+//                       TIPS
+// =====================================================
+/** Server bounds mirrored client-side (₹10–₹10,000), in paise. */
+export const TIP_MIN_PAISE = 10 * 100;
+export const TIP_MAX_PAISE = 10_000 * 100;
+
+/**
+ * POST /api/shows/:id/tip { amountPaise } — a Razorpay order of type 'tip'
+ * (100% to the seller, no fee; on verify the server writes the payout row and
+ * announces "🎉 X tipped ₹Y" in chat). Returns the SAME checkout order shape
+ * as buy-now, so RazorpayCheckout takes it unchanged.
+ */
+export function createTipOrder(showId: string, amountPaise: number) {
+  return j<BuyNowOrder>(
+    `/api/shows/${encodeURIComponent(showId)}/tip`,
+    { method: 'POST', body: JSON.stringify({ amountPaise }) },
+    true
+  );
+}
+
+// =====================================================
+//                  OFFERS (buyer)
+// =====================================================
+/** Offers must be 40–100% of the list price — mirrored so the sheet can
+ *  explain the bounds before spending a request, never instead of the server
+ *  validating. */
+export const OFFER_MIN_RATIO = 0.4;
+
+export interface OfferCreated {
+  ok?: boolean;
+  id?: string;
+  status?: string;
+  /** Creation + 24h — the window the seller has to respond. */
+  expiresAt?: string;
+}
+
+/**
+ * POST /api/products/:id/offer { amountPaise } — an offer on an active Buy It
+ * Now product. The server enforces ONE open offer per buyer+product and
+ * answers 409 with a human-readable message otherwise; callers show that
+ * message rather than guessing.
+ */
+export function makeOffer(productId: string, amountPaise: number) {
+  return j<OfferCreated>(
+    `/api/products/${encodeURIComponent(productId)}/offer`,
+    { method: 'POST', body: JSON.stringify({ amountPaise }) },
     true
   );
 }

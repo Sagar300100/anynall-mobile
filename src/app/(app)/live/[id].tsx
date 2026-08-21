@@ -42,7 +42,13 @@ import { AuctionPanel } from '@/components/auction-panel';
 import { BuyNowSheet, clearBuyNowIntent } from '@/components/buy-now-sheet';
 import { GetReadySheet } from '@/components/get-ready-sheet';
 import { LiveChat } from '@/components/live-chat';
-import { pickSpotlight, ProductSpotlight } from '@/components/product-spotlight';
+import {
+  availableUnits,
+  flashClock,
+  pickSpotlight,
+  ProductSpotlight,
+  useFlashSale,
+} from '@/components/product-spotlight';
 import { RazorpayCheckout } from '@/components/razorpay-checkout';
 import { useBrandColors } from '@/components/ui/form';
 import { ViewerStage } from '@/components/viewer-stage';
@@ -62,17 +68,25 @@ import {
 } from '@/lib/follows';
 import {
   canBuyFromShow,
+  createTipOrder,
   formatPaise,
   getCommerceProfile,
   isReadyToBid,
+  makeOffer,
+  OFFER_MIN_RATIO,
+  TIP_MAX_PAISE,
+  TIP_MIN_PAISE,
   type AuctionRecord,
   type BuyEligibility,
   type BuyNowOrder,
   type CommerceProfile,
 } from '@/lib/commerce';
+import { discountAmountPaise } from '@/lib/credits';
 import { subscribe as engineSubscribe, type EngineAuction } from '@/lib/auction-socket';
+import { enterGiveaway, entryCount, hasEntered, isPermissionDenied } from '@/lib/giveaways';
 import type { LiveEvent } from '@/lib/live-bus';
 import { listenAuctions, listenProducts, type ProductDoc } from '@/lib/realtime';
+import { serverMessage } from '@/lib/seller-hub';
 import { useSession } from '@/lib/session';
 import { useShows } from '@/hooks/use-shows';
 
@@ -145,6 +159,20 @@ export default function LiveRoomScreen() {
   const [rail, setRail] = useState<RailSheet | null>(null);
   // More → Hide chat. Local only; the messages keep streaming underneath.
   const [chatHidden, setChatHidden] = useState(false);
+  // ── Gap 8: giveaway entries, tips, offers ──
+  // Per-giveaway entry state: has THIS user entered, and how many entries the
+  // count aggregate reports. count === null means the aggregate read failed
+  // (e.g. rules not deployed yet) — rendered as nothing, never as a fake zero.
+  const [giveawayInfo, setGiveawayInfo] = useState<
+    Record<string, { entered: boolean; count: number | null }>
+  >({});
+  const [enteringId, setEnteringId] = useState<string | null>(null);
+  // Tips mirror buy-now exactly: amount sheet → server-created Razorpay order
+  // (same checkout order shape) → RazorpayCheckout on tipOrder.
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipOrder, setTipOrder] = useState<BuyNowOrder | null>(null);
+  // Make-an-offer sheet, keyed by product id the way buy-now is.
+  const [offerProductId, setOfferProductId] = useState<string | null>(null);
   // Tab screens stay mounted; only the visible screen may hold a LiveKit room.
   const screenFocused = useScreenFocused(true);
   const requireAuth = useAuthGate();
@@ -551,11 +579,83 @@ export default function LiveRoomScreen() {
   const buyingProduct = buyingProductId
     ? products.find((p) => p.id === buyingProductId) || null
     : null;
+  const offerProduct = offerProductId
+    ? products.find((p) => p.id === offerProductId) || null
+    : null;
 
   // Real giveaways only — the count is items the seller actually listed as a
-  // giveaway for this show. There is no entries/participants collection, so
-  // "98 Entries" has no honest equivalent and isn't invented.
+  // giveaway for this show.
   const giveaways = products.filter((p) => p.kind === 'giveaway');
+
+  // Entry state per giveaway: my own entry doc (getDoc) + the entry count
+  // (count aggregate — one read regardless of entries). Keyed on the SET of
+  // giveaway ids, not the products array: the listener fires on every product
+  // update and this must not re-read entries each time a price changes.
+  const giveawayIds = giveaways
+    .map((g) => g.id)
+    .sort()
+    .join(',');
+  const myUid = user?.uid ?? null;
+  useEffect(() => {
+    if (!id || !giveawayIds) return;
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve();
+      for (const pid of giveawayIds.split(',')) {
+        const [entered, count] = await Promise.all([
+          myUid ? hasEntered(String(id), pid).catch(() => false) : Promise.resolve(false),
+          entryCount(String(id), pid).catch(() => null),
+        ]);
+        if (cancelled) return;
+        setGiveawayInfo((prev) => {
+          const cur = prev[pid];
+          // An optimistic local entry (the write succeeded) must never be
+          // reverted by a slower read racing it.
+          const nextEntered = entered || !!cur?.entered;
+          if (cur && cur.entered === nextEntered && cur.count === count) return prev;
+          return { ...prev, [pid]: { entered: nextEntered, count } };
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, giveawayIds, myUid]);
+
+  /** One-tap giveaway entry — a DIRECT Firestore create the rules constrain
+   *  to the caller's own uid. Guests are gated exactly like buying. */
+  async function enterGiveawayTap(productId: string) {
+    if (!user) {
+      requireAuth('buy', () => {});
+      return;
+    }
+    if (enteringId) return;
+    setEnteringId(productId);
+    try {
+      await enterGiveaway(String(id), productId);
+      setGiveawayInfo((prev) => {
+        const cur = prev[productId];
+        return {
+          ...prev,
+          [productId]: {
+            entered: true,
+            count: cur?.count != null ? cur.count + 1 : null,
+          },
+        };
+      });
+      setNotice('You’re in! The seller draws the winner live.');
+    } catch (err) {
+      setNotice(
+        isPermissionDenied(err)
+          ? 'Giveaway entries aren’t switched on for this show yet.'
+          : 'Couldn’t enter the giveaway — please try again.'
+      );
+    } finally {
+      setEnteringId(null);
+    }
+  }
+
+  const enteredCount = giveaways.filter((g) => giveawayInfo[g.id]?.entered).length;
 
   // The rail's Shop tile shows the item on the block, like the reference.
   const railThumb = auctionProduct?.thumbnail_url || products.find((p) => p.thumbnail_url)?.thumbnail_url || null;
@@ -797,6 +897,14 @@ export default function LiveRoomScreen() {
               <Text style={styles.floatNum}>{giveaways.length}</Text>
               <Text style={styles.floatLabel}>{giveaways.length === 1 ? 'Item' : 'Items'}</Text>
             </View>
+            {/* Entry state, honestly: only what this user has actually done. */}
+            {enteredCount > 0 && (
+              <Text style={styles.floatEntered}>
+                {enteredCount === giveaways.length
+                  ? 'Entered ✓'
+                  : `Entered ${enteredCount} of ${giveaways.length}`}
+              </Text>
+            )}
           </Pressable>
         )}
 
@@ -1056,9 +1164,55 @@ export default function LiveRoomScreen() {
                 <Ionicons name="chevron-forward" size={19} color="rgba(159,180,216,0.6)" />
               </Pressable>
 
+              {/* Tip the seller — a real Razorpay payment (100% to the seller,
+                  no fee), so it runs through the same checkout as buy-now. */}
+              <Pressable
+                onPress={() => {
+                  if (!user) {
+                    setRail(null);
+                    requireAuth('buy', () => {});
+                    return;
+                  }
+                  setRail(null);
+                  setTipOpen(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Tip the seller"
+                style={({ pressed }) => [styles.railRow, pressed && { opacity: 0.75 }]}
+              >
+                <Ionicons name="heart-outline" size={22} color="#7FB2FF" />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={styles.railRowTitle}>Tip the seller</Text>
+                  <Text style={styles.railRowBody}>
+                    Say thanks with ₹10–₹10,000. Every rupee goes to the seller.
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={19} color="rgba(159,180,216,0.6)" />
+              </Pressable>
+
+              {/* Referral credit (spec Gap 6) — shown only when a real balance
+                  exists on the commerce profile. No balance, no row. */}
+              {(profile?.creditPaise ?? 0) > 0 && (
+                <View
+                  style={styles.railRow}
+                  accessible
+                  accessibilityLabel={`Credit balance ${formatPaise(profile?.creditPaise ?? 0)}`}
+                >
+                  <Ionicons name="gift-outline" size={22} color="#7FB2FF" />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={styles.railRowTitle}>
+                      Credit: {formatPaise(profile?.creditPaise ?? 0)}
+                    </Text>
+                    <Text style={styles.railRowBody}>
+                      Spend it at checkout with the “Use credit” toggle.
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               <Text style={styles.railNote}>
-                Referral credit and promo codes aren’t built yet — there’s no discount model on
-                orders, so they’d have nothing to apply to.
+                Promo codes aren’t built yet — referral credit is the only discount that exists,
+                and it applies at checkout.
               </Text>
             </>
           )}
@@ -1072,42 +1226,95 @@ export default function LiveRoomScreen() {
                 </Text>
               ) : (
                 <ScrollView style={{ maxHeight: 380 }}>
-                  {products.map((p) => (
-                    <Pressable
-                      key={p.id}
-                      onPress={() => {
-                        setRail(null);
-                        openBuyNow(p.id);
-                      }}
-                      disabled={p.kind === 'auction' || p.kind === 'giveaway'}
-                      accessibilityRole="button"
-                      accessibilityLabel={p.title}
-                      style={({ pressed }) => [styles.railRow, pressed && { opacity: 0.75 }]}
-                    >
-                      {p.thumbnail_url ? (
-                        <Image source={{ uri: p.thumbnail_url }} style={styles.shopThumb} contentFit="cover" />
-                      ) : (
-                        <View style={[styles.shopThumb, styles.shopThumbEmpty]}>
-                          <Ionicons name="image-outline" size={18} color="rgba(159,180,216,0.6)" />
+                  {products.map((p) => {
+                    const info = giveawayInfo[p.id];
+                    const isGiveaway = p.kind === 'giveaway';
+                    const isBin = p.kind !== 'auction' && !isGiveaway;
+                    return (
+                      <Pressable
+                        key={p.id}
+                        onPress={() => {
+                          setRail(null);
+                          openBuyNow(p.id);
+                        }}
+                        disabled={!isBin}
+                        accessibilityRole="button"
+                        accessibilityLabel={p.title}
+                        style={({ pressed }) => [styles.railRow, pressed && { opacity: 0.75 }]}
+                      >
+                        {p.thumbnail_url ? (
+                          <Image source={{ uri: p.thumbnail_url }} style={styles.shopThumb} contentFit="cover" />
+                        ) : (
+                          <View style={[styles.shopThumb, styles.shopThumbEmpty]}>
+                            <Ionicons name="image-outline" size={18} color="rgba(159,180,216,0.6)" />
+                          </View>
+                        )}
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={styles.railRowTitle} numberOfLines={1}>
+                            {p.title}
+                          </Text>
+                          {p.kind === 'auction' ? (
+                            <Text style={styles.railRowBody}>Auction lot</Text>
+                          ) : isGiveaway ? (
+                            <Text style={styles.railRowBody}>
+                              {p.giveawayWinner
+                                ? `Won by ${p.giveawayWinner.name}`
+                                : `${info?.entered ? 'Entered ✓' : 'Giveaway'}${
+                                    info?.count != null
+                                      ? ` · ${info.count} ${info.count === 1 ? 'entry' : 'entries'}`
+                                      : ''
+                                  }`}
+                            </Text>
+                          ) : (
+                            <ShopRowPrice product={p} />
+                          )}
                         </View>
-                      )}
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <Text style={styles.railRowTitle} numberOfLines={1}>
-                          {p.title}
-                        </Text>
-                        <Text style={styles.railRowBody}>
-                          {p.kind === 'auction'
-                            ? 'Auction lot'
-                            : p.kind === 'giveaway'
-                              ? 'Giveaway'
-                              : formatPaise(p.price)}
-                        </Text>
-                      </View>
-                      {p.kind !== 'auction' && p.kind !== 'giveaway' && (
-                        <Ionicons name="chevron-forward" size={19} color="rgba(159,180,216,0.6)" />
-                      )}
-                    </Pressable>
-                  ))}
+
+                        {/* Giveaway: one-tap entry, then the done state. */}
+                        {isGiveaway && !p.giveawayWinner && (
+                          info?.entered ? (
+                            <Text style={styles.enteredText}>Entered ✓</Text>
+                          ) : (
+                            <Pressable
+                              onPress={() => enterGiveawayTap(p.id)}
+                              disabled={enteringId !== null}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Enter the giveaway for ${p.title}`}
+                              style={({ pressed }) => [
+                                styles.enterBtn,
+                                enteringId !== null && { opacity: 0.5 },
+                                pressed && { opacity: 0.8 },
+                              ]}
+                            >
+                              <Text style={styles.enterBtnText}>
+                                {enteringId === p.id ? 'Entering…' : 'Enter'}
+                              </Text>
+                            </Pressable>
+                          )
+                        )}
+
+                        {/* Buy It Now: make an offer, next to the buy chevron. */}
+                        {isBin && availableUnits(p) > 0 && (
+                          <Pressable
+                            onPress={() =>
+                              requireAuth('buy', () => {
+                                setRail(null);
+                                setOfferProductId(p.id);
+                              })
+                            }
+                            accessibilityRole="button"
+                            accessibilityLabel={`Make an offer on ${p.title}`}
+                            style={({ pressed }) => [styles.offerBtn, pressed && { opacity: 0.8 }]}
+                          >
+                            <Text style={styles.offerBtnText}>Offer</Text>
+                          </Pressable>
+                        )}
+                        {isBin && (
+                          <Ionicons name="chevron-forward" size={19} color="rgba(159,180,216,0.6)" />
+                        )}
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               )}
             </>
@@ -1143,8 +1350,22 @@ export default function LiveRoomScreen() {
           visible={!buyOrder}
           product={buyingProduct}
           address={profile?.savedAddress || null}
+          creditPaise={profile?.creditPaise ?? 0}
           onEditAddress={() => setGetReadyOpen(true)}
-          onOrderCreated={(order) => setBuyOrder(order)}
+          onOrderCreated={(order) => {
+            setBuyOrder(order);
+            // Server-confirmed savings (spec Gap 6) — announce the REAL
+            // recorded amounts, never client-side estimates.
+            const credit = order.creditApplied || 0;
+            const firstBuy = discountAmountPaise(order.firstBuyDiscount);
+            if (credit > 0 || firstBuy > 0) {
+              const parts = [
+                credit > 0 ? `${formatPaise(credit)} credit` : null,
+                firstBuy > 0 ? `${formatPaise(firstBuy)} first-purchase discount` : null,
+              ].filter(Boolean);
+              setNotice(`${parts.join(' + ')} applied — Razorpay charges ${formatPaise(order.amount)}.`);
+            }
+          }}
           onClose={() => setBuyingProductId(null)}
         />
       )}
@@ -1178,6 +1399,47 @@ export default function LiveRoomScreen() {
           setNotice(message);
         }}
       />
+
+      {/* Tip the seller — the tip order is the SAME checkout shape as a
+          buy-now order, so it drives its own RazorpayCheckout exactly the way
+          buyOrder does. Only one of the two can be visible at a time. */}
+      <TipSheet
+        visible={tipOpen}
+        showId={String(id)}
+        onCreated={(order) => {
+          setTipOpen(false);
+          setTipOrder(order);
+        }}
+        onClose={() => setTipOpen(false)}
+      />
+      <RazorpayCheckout
+        visible={!!tipOrder}
+        order={tipOrder}
+        description={tipOrder?.productTitle || 'Tip the seller'}
+        prefill={{
+          name: user?.displayName || undefined,
+          email: user?.email || undefined,
+          contact: profile?.savedAddress?.phone || undefined,
+        }}
+        preferredMethod={profile?.preferredMethod || undefined}
+        onSuccess={() => {
+          setTipOrder(null);
+          setNotice('🎉 Tip sent — thank you!');
+        }}
+        onDismiss={() => {
+          setTipOrder(null);
+          setNotice('Tip cancelled — nothing was charged.');
+        }}
+        onError={(message) => {
+          setTipOrder(null);
+          setNotice(message);
+        }}
+      />
+
+      {/* Make an offer on a Buy It Now item */}
+      {offerProduct && (
+        <OfferSheet product={offerProduct} onClose={() => setOfferProductId(null)} />
+      )}
     </View>
   );
 }
@@ -1199,6 +1461,270 @@ const ViewerCountPill = memo(function ViewerCountPill({ room }: { room: Room | n
     </View>
   );
 });
+
+/** Rupees typed by a human → integer paise. Null when unusable. */
+function rupeesToPaise(rupees: string): number | null {
+  const n = Number(rupees.replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const paise = Math.round(n * 100);
+  return Number.isSafeInteger(paise) ? paise : null;
+}
+
+/** The price line of a Buy It Now shop-sheet row. While the product carries a
+ *  running flash sale this becomes strikethrough-list + flash price + mm:ss —
+ *  its OWN component so the 1s countdown tick re-renders one price line, not
+ *  the whole sheet. */
+function ShopRowPrice({ product }: { product: ProductDoc }) {
+  const flash = useFlashSale(product);
+  if (!flash) {
+    return <Text style={styles.railRowBody}>{formatPaise(product.price || 0)}</Text>;
+  }
+  return (
+    <View style={styles.flashRow}>
+      <Text style={[styles.railRowBody, styles.flashStrike]}>
+        {formatPaise(product.price || 0)}
+      </Text>
+      <Text style={styles.flashRowPrice}>{formatPaise(flash.pricePaise)}</Text>
+      <View style={styles.flashRowChip}>
+        <Ionicons name="flash" size={11} color="#FFD166" />
+        <Text style={styles.flashRowChipText}>{flashClock(flash.msLeft)}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** Preset tip amounts, in paise (₹10 / ₹50 / ₹100). */
+const TIP_PRESETS = [1_000, 5_000, 10_000] as const;
+
+/** Pick-an-amount sheet for tipping the seller. The server prices nothing
+ *  here — it validates the bounds again and mints the Razorpay order; this
+ *  sheet only keeps obviously-invalid amounts from spending a request. */
+function TipSheet({
+  visible,
+  showId,
+  onCreated,
+  onClose,
+}: {
+  visible: boolean;
+  showId: string;
+  /** The created order — the parent opens RazorpayCheckout with it. */
+  onCreated: (order: BuyNowOrder) => void;
+  onClose: () => void;
+}) {
+  const [selected, setSelected] = useState<number | 'custom'>(TIP_PRESETS[0]);
+  const [custom, setCustom] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const amountPaise = selected === 'custom' ? rupeesToPaise(custom) : selected;
+  const valid =
+    amountPaise != null && amountPaise >= TIP_MIN_PAISE && amountPaise <= TIP_MAX_PAISE;
+
+  async function send() {
+    if (!valid || amountPaise == null || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      onCreated(await createTipOrder(showId, amountPaise));
+    } catch (e) {
+      // The endpoint ships in the backend wave — until then this is the
+      // honest failure, with the server's own sentence once it exists.
+      setErr(serverMessage(e, 'Couldn’t start the tip — please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={styles.railSheet}>
+        <View style={styles.grabber} />
+        <Text style={styles.railTitle}>Tip the seller</Text>
+        <Text style={styles.railRowBody}>
+          100% goes to the seller — Any&All takes no fee on tips.
+        </Text>
+
+        <View style={styles.tipRow}>
+          {TIP_PRESETS.map((p) => {
+            const on = selected === p;
+            return (
+              <Pressable
+                key={p}
+                onPress={() => setSelected(p)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`Tip ${formatPaise(p)}`}
+                style={({ pressed }) => [
+                  styles.tipPill,
+                  on && styles.tipPillOn,
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <Text style={styles.tipPillText}>{formatPaise(p)}</Text>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            onPress={() => setSelected('custom')}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: selected === 'custom' }}
+            accessibilityLabel="Custom tip amount"
+            style={({ pressed }) => [
+              styles.tipPill,
+              selected === 'custom' && styles.tipPillOn,
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            <Text style={styles.tipPillText}>Custom</Text>
+          </Pressable>
+        </View>
+
+        {selected === 'custom' && (
+          <View style={styles.amountBox}>
+            <Text style={styles.amountRupee}>₹</Text>
+            <TextInput
+              value={custom}
+              onChangeText={setCustom}
+              placeholder="Amount (₹10–₹10,000)"
+              placeholderTextColor="rgba(159,180,216,0.55)"
+              keyboardType="number-pad"
+              style={styles.amountInput}
+              accessibilityLabel="Custom tip amount in rupees"
+            />
+          </View>
+        )}
+
+        {selected === 'custom' && custom.trim().length > 0 && !valid && (
+          <Text style={styles.sheetHint}>Tips are between ₹10 and ₹10,000.</Text>
+        )}
+        {!!err && <Text style={styles.sheetError}>{err}</Text>}
+
+        <Pressable
+          onPress={send}
+          disabled={!valid || busy}
+          accessibilityRole="button"
+          accessibilityLabel="Send tip"
+          accessibilityState={{ disabled: !valid || busy }}
+          style={({ pressed }) => [
+            styles.sheetPrimaryBtn,
+            (!valid || busy) && { opacity: 0.5 },
+            pressed && { opacity: 0.85 },
+          ]}
+        >
+          <Text style={styles.sheetPrimaryText}>
+            {busy
+              ? 'Starting…'
+              : valid && amountPaise != null
+                ? `Tip ${formatPaise(amountPaise)}`
+                : 'Tip'}
+          </Text>
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+/** Make an offer on an active Buy It Now product. Client-validates the
+ *  spec's 40–100%-of-list window before spending a request; the server
+ *  enforces it again, plus "one open offer per buyer per product" (its 409
+ *  message is shown verbatim). */
+function OfferSheet({ product, onClose }: { product: ProductDoc; onClose: () => void }) {
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+
+  const list = product.price || 0;
+  const minPaise = Math.ceil(list * OFFER_MIN_RATIO);
+  const paise = rupeesToPaise(amount);
+  const valid = paise != null && paise >= minPaise && paise <= list;
+
+  async function submit() {
+    if (!valid || paise == null || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await makeOffer(product.id, paise);
+      setSent(true);
+    } catch (e) {
+      setErr(serverMessage(e, 'Couldn’t send the offer — please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={styles.railSheet}>
+        <View style={styles.grabber} />
+        <Text style={styles.railTitle}>Make an offer</Text>
+        <Text style={styles.railRowBody} numberOfLines={2}>
+          {product.title} · listed at {formatPaise(list)}
+        </Text>
+
+        {sent ? (
+          <>
+            <Text style={styles.offerSentTitle}>Offer sent ✓</Text>
+            <Text style={styles.railRowBody}>
+              The seller has 24 hours to accept or decline. If they accept, you’ll get 30
+              minutes to pay at your offer price.
+            </Text>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+              style={({ pressed }) => [styles.sheetPrimaryBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Text style={styles.sheetPrimaryText}>Done</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <View style={styles.amountBox}>
+              <Text style={styles.amountRupee}>₹</Text>
+              <TextInput
+                value={amount}
+                onChangeText={setAmount}
+                placeholder={`${Math.ceil(minPaise / 100)}–${Math.floor(list / 100)}`}
+                placeholderTextColor="rgba(159,180,216,0.55)"
+                keyboardType="number-pad"
+                style={styles.amountInput}
+                accessibilityLabel="Offer amount in rupees"
+              />
+            </View>
+            <Text style={styles.sheetHint}>
+              Offers must be between {formatPaise(minPaise)} and {formatPaise(list)}. One
+              open offer per item.
+            </Text>
+            {!!err && <Text style={styles.sheetError}>{err}</Text>}
+            <Pressable
+              onPress={submit}
+              disabled={!valid || busy}
+              accessibilityRole="button"
+              accessibilityLabel="Send offer"
+              accessibilityState={{ disabled: !valid || busy }}
+              style={({ pressed }) => [
+                styles.sheetPrimaryBtn,
+                (!valid || busy) && { opacity: 0.5 },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <Text style={styles.sheetPrimaryText}>
+                {busy
+                  ? 'Sending…'
+                  : valid && paise != null
+                    ? `Offer ${formatPaise(paise)}`
+                    : 'Send offer'}
+              </Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+    </Modal>
+  );
+}
 
 /** One rail entry: a bare icon (or a product tile) with its label underneath.
  *  The reference has no button chrome here — the icons sit straight on the
@@ -1462,6 +1988,7 @@ const styles = StyleSheet.create({
   floatBody: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   floatNum: { color: '#FFFFFF', fontSize: 20, fontFamily: Fonts.sansSemiBold },
   floatLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 14, fontFamily: Fonts.sans },
+  floatEntered: { color: '#8CE8B4', fontSize: 13.5, fontFamily: Fonts.sansSemiBold },
 
   // ── Chat + rail ───────────────────────────────────────────────────────
   // The chat column's internals (list, rows, guest pill) live with LiveChat
@@ -1629,4 +2156,81 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  // ── Giveaway entry (shop sheet) ───────────────────────────────────────
+  enterBtn: {
+    backgroundColor: '#2E6BFF',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    minHeight: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enterBtnText: { color: '#FFFFFF', fontSize: 14, fontFamily: Fonts.sansSemiBold },
+  enteredText: { color: '#8CE8B4', fontSize: 13.5, fontFamily: Fonts.sansSemiBold },
+
+  // ── Offers (shop sheet) ───────────────────────────────────────────────
+  offerBtn: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offerBtnText: { color: '#FFFFFF', fontSize: 13, fontFamily: Fonts.sansSemiBold },
+  offerSentTitle: { color: '#8CE8B4', fontSize: 17, fontFamily: Fonts.sansSemiBold },
+
+  // ── Flash sale (shop sheet rows) ──────────────────────────────────────
+  flashRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  flashStrike: { textDecorationLine: 'line-through', color: 'rgba(159,180,216,0.6)' },
+  flashRowPrice: { color: '#FFD166', fontSize: 13.5, fontFamily: Fonts.sansSemiBold },
+  flashRowChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255,209,102,0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  flashRowChipText: { color: '#FFD166', fontSize: 11.5, fontFamily: Fonts.sansSemiBold },
+
+  // ── Tip + offer sheets ────────────────────────────────────────────────
+  tipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
+  tipPill: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tipPillOn: { backgroundColor: '#2E6BFF', borderColor: '#2E6BFF' },
+  tipPillText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.sansSemiBold },
+  amountBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    minHeight: 50,
+  },
+  amountRupee: { color: '#FFFFFF', fontSize: 16, fontFamily: Fonts.sansSemiBold },
+  amountInput: { flex: 1, color: '#FFFFFF', fontSize: 16, fontFamily: Fonts.sans, padding: 0 },
+  sheetHint: { color: 'rgba(159,180,216,0.9)', fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 17 },
+  sheetError: { color: '#FF8B8B', fontSize: 13, fontFamily: Fonts.sans, lineHeight: 18 },
+  sheetPrimaryBtn: {
+    minHeight: 52,
+    borderRadius: 999,
+    backgroundColor: '#2E6BFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.one,
+  },
+  sheetPrimaryText: { color: '#FFFFFF', fontSize: 16, fontFamily: Fonts.sansSemiBold },
 });

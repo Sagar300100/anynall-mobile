@@ -12,6 +12,7 @@ import {
 
 import type { AuctionRecord } from './commerce';
 import { db } from './firebase';
+import { msUntil } from './server-time';
 
 export interface ProductDoc {
   id: string;
@@ -34,6 +35,40 @@ export interface ProductDoc {
   /** new | pre-owned | mint | near-mint | good | fair | poor */
   condition?: string;
   showId?: string | null;
+  /** Flash sale (Gap 8) — written by POST /api/products/:id/flash. Buy-now
+   *  charges pricePaise while now < endsAt (checked SERVER-side); this field
+   *  only drives the strikethrough + countdown display. endsAt may arrive as
+   *  an ISO string or a Firestore Timestamp — use activeFlashSale(). */
+  flashSale?: { pricePaise: number; endsAt: unknown } | null;
+  /** Written by the server when the seller draws the giveaway. */
+  giveawayWinner?: { uid: string; name: string; drawnAt?: unknown } | null;
+}
+
+/** endsAt as ISO, whichever shape the doc carries: the HTTP route writes an
+ *  ISO string; a Firestore serverTimestamp arrives as a Timestamp object. */
+export function flashEndsAtIso(f: { endsAt: unknown } | null | undefined): string | null {
+  const v = f?.endsAt;
+  if (!v) return null;
+  if (typeof v === 'string') return v;
+  const toDate = (v as { toDate?: () => Date }).toDate;
+  if (typeof toDate === 'function') return toDate.call(v).toISOString();
+  const secs =
+    (v as { seconds?: number }).seconds ?? (v as { _seconds?: number })._seconds;
+  if (typeof secs === 'number') return new Date(secs * 1000).toISOString();
+  return null;
+}
+
+/** The product's flash sale IF it is still running (by the server-corrected
+ *  clock), normalised to { pricePaise, endsAt: ISO }. Null once expired or
+ *  absent — display logic never has to reason about clock skew itself. */
+export function activeFlashSale(
+  p: Pick<ProductDoc, 'flashSale'>
+): { pricePaise: number; endsAt: string } | null {
+  const f = p.flashSale;
+  if (!f || typeof f.pricePaise !== 'number' || f.pricePaise <= 0) return null;
+  const endsAt = flashEndsAtIso(f);
+  if (!endsAt || msUntil(endsAt) <= 0) return null;
+  return { pricePaise: f.pricePaise, endsAt };
 }
 
 export function listenProducts(showId: string, cb: (products: ProductDoc[]) => void) {

@@ -4,7 +4,7 @@
 // verification. Expiry is enforced by the backend; the sheet only reports it.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { FormError, PrimaryButton, useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
@@ -15,6 +15,7 @@ import {
   type AuctionRecord,
   type CommerceProfile,
 } from '@/lib/commerce';
+import { discountAmountPaise, spendableCredit } from '@/lib/credits';
 import { RazorpayCheckout, type CheckoutOrder } from '@/components/razorpay-checkout';
 import { reauth as reauthAuctionEngine } from '@/lib/auction-socket';
 import { useSession } from '@/lib/session';
@@ -38,13 +39,22 @@ export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
   const totalAmount = auction.winningTotalAmount ?? bidAmount + shippingFee;
 
   const [order, setOrder] = useState<
-    (CheckoutOrder & { productTitle?: string; paymentWindowExpiresAt?: string }) | null
+    | (CheckoutOrder & {
+        productTitle?: string;
+        paymentWindowExpiresAt?: string;
+        creditApplied?: number;
+        firstBuyDiscount?: number | { amountPaise?: number; percent?: number } | null;
+      })
+    | null
   >(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [paid, setPaid] = useState(false);
   const [expired, setExpired] = useState(false);
+  // Spend referral credit on this win (spec Gap 6). Off by default — spending
+  // a balance is always the winner's explicit choice.
+  const [useCredit, setUseCredit] = useState(false);
 
   const expiresAt = order?.paymentWindowExpiresAt || auction.paymentWindowExpiresAt;
   const [secondsLeft, setSecondsLeft] = useState(() =>
@@ -69,11 +79,16 @@ export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
     auctionPaymentExpired(auction.id).catch(() => {});
   }, [expired, paid, auction.id]);
 
+  // Preview only — the server's transaction decides the real deduction
+  // (min(balance, total − ₹1)); the order it returns carries the actual
+  // `creditApplied`, which is what the breakdown lines below render.
+  const creditPreview = spendableCredit(profile?.creditPaise ?? 0, totalAmount);
+
   async function pay() {
     setBusy(true);
     setErr(null);
     try {
-      const o = await createAuctionWinnerOrder(auction.id);
+      const o = await createAuctionWinnerOrder(auction.id, undefined, useCredit && creditPreview > 0);
       setOrder(o);
       setCheckoutOpen(true);
     } catch (e: any) {
@@ -108,7 +123,7 @@ export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
               <Text style={[styles.title, { color: c.text }]}>Payment window expired</Text>
               <Text style={[styles.sub, { color: c.textSecondary }]}>
                 The reservation was released so the seller can relist. Unpaid wins can pause
-                your bidding — reach out to support if this wasn't your fault.
+                your bidding — reach out to support if this wasn’t your fault.
               </Text>
               <PrimaryButton title="Close" variant="ghost" onPress={onDone} />
             </>
@@ -142,9 +157,59 @@ export function WinnerPaymentSheet({ auction, profile, onDone }: Props) {
                 <Text style={[styles.timerLabel, { color: c.textSecondary }]}>TO PAY</Text>
               </View>
 
+              {/* Referral credit (spec Gap 6) — only when a real balance exists. */}
+              {creditPreview > 0 && !order && (
+                <View
+                  style={[
+                    styles.creditRow,
+                    { borderColor: c.border, backgroundColor: c.background },
+                  ]}
+                >
+                  <View style={{ flex: 1, gap: 1 }}>
+                    <Text style={[styles.creditTitle, { color: c.text }]}>
+                      Use {formatPaise(creditPreview)} credit
+                    </Text>
+                    <Text style={[styles.creditBody, { color: c.textSecondary }]}>
+                      Applied when the payment is created — Razorpay charges the remainder (₹1
+                      minimum).
+                    </Text>
+                  </View>
+                  <Switch
+                    value={useCredit}
+                    onValueChange={setUseCredit}
+                    accessibilityLabel={`Use ${formatPaise(creditPreview)} credit on this payment`}
+                    trackColor={{ false: 'rgba(120,150,210,0.35)', true: c.primary }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+              )}
+
+              {/* Server-confirmed breakdown once the order exists — these are
+                  the amounts the backend actually recorded, never estimates. */}
+              {!!order &&
+                ((order.creditApplied || 0) > 0 ||
+                  discountAmountPaise(order.firstBuyDiscount) > 0) && (
+                  <View style={[styles.breakdown, { borderColor: c.border }]}>
+                    {(order.creditApplied || 0) > 0 && (
+                      <Text style={[styles.breakdownLine, { color: c.textSecondary }]}>
+                        Credit applied −{formatPaise(order.creditApplied || 0)}
+                      </Text>
+                    )}
+                    {discountAmountPaise(order.firstBuyDiscount) > 0 && (
+                      <Text style={[styles.breakdownLine, { color: c.textSecondary }]}>
+                        First-purchase discount −
+                        {formatPaise(discountAmountPaise(order.firstBuyDiscount))}
+                      </Text>
+                    )}
+                    <Text style={[styles.breakdownLine, { color: c.text }]}>
+                      Razorpay charges {formatPaise(order.amount)}
+                    </Text>
+                  </View>
+                )}
+
               <FormError message={err} />
               <PrimaryButton
-                title={`Pay ${formatPaise(totalAmount)} now`}
+                title={order ? `Pay ${formatPaise(order.amount)} now` : `Pay ${formatPaise(totalAmount)} now`}
                 onPress={pay}
                 loading={busy}
               />
@@ -220,4 +285,21 @@ const styles = StyleSheet.create({
   timerText: { fontFamily: Fonts.mono, fontSize: 30 },
   timerLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2 },
   later: { alignSelf: 'center', paddingVertical: Spacing.one },
+  creditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: Spacing.three,
+  },
+  creditTitle: { fontSize: 14, fontFamily: Fonts.sansMedium },
+  creditBody: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 16 },
+  breakdown: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: Spacing.two + Spacing.one,
+    gap: 3,
+  },
+  breakdownLine: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18, textAlign: 'center' },
 });

@@ -8,26 +8,30 @@
 // change flow. Every row is a real action — no fake toggles, no placeholder
 // preferences.
 import Ionicons from '@expo/vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   Share,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MenuGroup, MenuRow } from '@/components/account-menu';
 import { GuestPrompt } from '@/components/guest-prompt';
-import { useBrandColors } from '@/components/ui/form';
+import { PrimaryButton, useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { exportMyData, hasPasswordProvider, isTwoFactorEnrolled } from '@/lib/account';
 import { useAuthStatus } from '@/lib/auth-gate';
+import { redeemReferral, referralRedeemError } from '@/lib/credits';
 import {
   canNotify,
   getPushPreference,
@@ -147,6 +151,64 @@ export default function SettingsScreen() {
     }
   }
 
+  // ── Referral code (spec Gap 6) ──
+  // The row hides SOFTLY once this account has redeemed (or the server said
+  // it never can — already referred / already purchased): a local per-uid
+  // flag, not a server field, because the profile doesn't expose referredBy.
+  // Worst case the row reappears on a new device and the server refuses
+  // again with the same honest message.
+  const referralDoneKey = user ? `anynall:referral-redeemed:${user.uid}` : null;
+  const [referralHidden, setReferralHidden] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
+  const [referralCode, setReferralCode] = useState('');
+  const [referralBusy, setReferralBusy] = useState(false);
+  const [referralErr, setReferralErr] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!referralDoneKey) return;
+      let cancelled = false;
+      AsyncStorage.getItem(referralDoneKey)
+        .then((v) => {
+          if (!cancelled) setReferralHidden(v === '1');
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, [referralDoneKey])
+  );
+
+  async function applyReferral() {
+    const code = referralCode.trim();
+    if (!code || referralBusy) return;
+    setReferralBusy(true);
+    setReferralErr(null);
+    try {
+      await redeemReferral(code);
+      setReferralOpen(false);
+      setReferralHidden(true);
+      if (referralDoneKey) AsyncStorage.setItem(referralDoneKey, '1').catch(() => {});
+      Alert.alert(
+        'Referral code applied',
+        'You’re linked. The credit for you both lands after your first purchase.'
+      );
+    } catch (e) {
+      const { message, terminal } = referralRedeemError(e);
+      if (terminal) {
+        // This account can never redeem — hide the entry point softly.
+        setReferralOpen(false);
+        setReferralHidden(true);
+        if (referralDoneKey) AsyncStorage.setItem(referralDoneKey, '1').catch(() => {});
+        Alert.alert('Referral code', message);
+      } else {
+        setReferralErr(message);
+      }
+    } finally {
+      setReferralBusy(false);
+    }
+  }
+
   async function exportData() {
     setExporting(true);
     try {
@@ -248,6 +310,20 @@ export default function SettingsScreen() {
               support="Which method checkout opens on"
               onPress={() => router.push('/account/payments')}
             />
+            {/* Hidden softly once redeemed (or the server said this account
+                never can) — see the referral state above. */}
+            {!referralHidden && (
+              <MenuRow
+                icon="gift-outline"
+                label="Enter referral code"
+                support="A friend’s @handle — you both earn credit after your first purchase"
+                onPress={() => {
+                  setReferralErr(null);
+                  setReferralCode('');
+                  setReferralOpen(true);
+                }}
+              />
+            )}
           </MenuGroup>
 
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>NOTIFICATIONS</Text>
@@ -363,6 +439,64 @@ export default function SettingsScreen() {
           </MenuGroup>
         </ScrollView>
       )}
+
+      {/* Referral code entry (spec Gap 6) */}
+      <Modal
+        visible={referralOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setReferralOpen(false)}
+      >
+        <View style={styles.sheetScrim}>
+          <View
+            style={[styles.sheet, { backgroundColor: c.backgroundElement, borderColor: c.border }]}
+          >
+            <View style={styles.sheetHead}>
+              <Text style={[styles.sheetTitle, { color: c.text }]}>Referral code</Text>
+              <Pressable
+                onPress={() => setReferralOpen(false)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Close referral code entry"
+              >
+                <Ionicons name="close" size={20} color={c.textSecondary} />
+              </Pressable>
+            </View>
+            <Text style={[styles.sheetBody, { color: c.textSecondary }]}>
+              Enter the @handle of the member who invited you. It only works before your first
+              purchase — the credit for you both arrives once that purchase is paid.
+            </Text>
+            <View
+              style={[styles.codeField, { borderColor: c.border, backgroundColor: c.background }]}
+            >
+              <Text style={[styles.codeAt, { color: c.textSecondary }]}>@</Text>
+              <TextInput
+                value={referralCode}
+                onChangeText={setReferralCode}
+                placeholder="theirhandle"
+                placeholderTextColor={c.textFaint}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                maxLength={30}
+                accessibilityLabel="Referral code"
+                style={[styles.codeInput, { color: c.text }]}
+                onSubmitEditing={applyReferral}
+                returnKeyType="done"
+              />
+            </View>
+            {!!referralErr && (
+              <Text style={[styles.codeError, { color: c.danger }]}>{referralErr}</Text>
+            )}
+            <PrimaryButton
+              title="Apply code"
+              onPress={applyReferral}
+              loading={referralBusy}
+              disabled={!referralCode.trim()}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -400,4 +534,34 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   badgeText: { fontSize: 11, fontFamily: Fonts.sansMedium },
+
+  // ── Referral sheet ──
+  sheetScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(2,6,16,0.72)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderWidth: 1,
+    padding: Spacing.three,
+    paddingBottom: Spacing.five,
+    gap: Spacing.three,
+  },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sheetTitle: { fontSize: 20, fontFamily: Fonts.sansSemiBold },
+  sheetBody: { fontSize: 13.5, fontFamily: Fonts.sans, lineHeight: 20 },
+  codeField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    minHeight: 52,
+  },
+  codeAt: { fontSize: 16, fontFamily: Fonts.sansSemiBold },
+  codeInput: { flex: 1, fontSize: 16, fontFamily: Fonts.sans, padding: 0 },
+  codeError: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
 });

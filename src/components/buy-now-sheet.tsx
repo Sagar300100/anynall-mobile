@@ -5,7 +5,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { FormError, PrimaryButton, useBrandColors } from '@/components/ui/form';
 import { IN_STATES } from '@/constants/in-states';
@@ -17,12 +17,16 @@ import {
   type BuyNowOrder,
   type ShippingAddress,
 } from '@/lib/commerce';
-import type { ProductDoc } from '@/lib/realtime';
+import { spendableCredit } from '@/lib/credits';
+import { activeFlashSale, type ProductDoc } from '@/lib/realtime';
 
 interface Props {
   visible: boolean;
   product: ProductDoc;
   address: ShippingAddress | null;
+  /** Referral-credit balance in paise (spec Gap 6). 0/absent hides the
+   *  "Use credit" toggle entirely — no credit, no dead control. */
+  creditPaise?: number;
   /** Open the address/setup sheet (GetReadySheet) to add or change address. */
   onEditAddress: () => void;
   /** Order created — parent opens the Razorpay checkout with it. */
@@ -69,6 +73,7 @@ export function BuyNowSheet({
   visible,
   product,
   address,
+  creditPaise = 0,
   onEditAddress,
   onOrderCreated,
   onClose,
@@ -76,10 +81,22 @@ export function BuyNowSheet({
   const c = useBrandColors();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Spend referral credit on this order (spec Gap 6). Off by default —
+  // spending a balance is always the buyer's explicit choice.
+  const [useCredit, setUseCredit] = useState(false);
 
   const shippingFee = product.shippingFee || 0;
-  const total = (product.price || 0) + shippingFee;
+  // Flash sale: the SERVER charges the flash price while it's active, so the
+  // sheet must show the same number — displaying the list price here while
+  // Razorpay charged less is the shown-vs-charged divergence this codebase
+  // has already been burned by (in the other direction).
+  const flash = activeFlashSale(product);
+  const unitPrice = flash ? flash.pricePaise : product.price || 0;
+  const total = unitPrice + shippingFee;
   const stateName = address ? IN_STATES.find((s) => s.code === address.stateCode)?.name : '';
+  // Preview only — the server's transaction decides the real deduction
+  // (min(balance, total − ₹1)); Razorpay charges exactly what it returns.
+  const creditPreview = spendableCredit(creditPaise, total);
 
   async function pay() {
     if (!address) {
@@ -91,7 +108,7 @@ export function BuyNowSheet({
     try {
       // The intent key: same product → same key until the purchase succeeds.
       const key = intentKeyFor(product.id);
-      const order = await createBuyNowOrder(product.id, address, key);
+      const order = await createBuyNowOrder(product.id, address, key, useCredit && creditPreview > 0);
       onOrderCreated(order);
     } catch (e: any) {
       const text = String(e?.message || '');
@@ -132,7 +149,7 @@ export function BuyNowSheet({
                 {product.title}
               </Text>
               <Text style={[styles.priceLine, { color: c.textSecondary }]}>
-                {formatPaise(product.price || 0)}
+                {flash ? `⚡ ${formatPaise(unitPrice)} ` : formatPaise(unitPrice)}
                 {shippingFee > 0 ? ` + ${formatPaise(shippingFee)} shipping` : ' · Free shipping'}
               </Text>
             </View>
@@ -161,15 +178,46 @@ export function BuyNowSheet({
             </Text>
           </Pressable>
 
+          {/* Referral credit (spec Gap 6) — only when a real balance exists. */}
+          {creditPreview > 0 && (
+            <View
+              style={[styles.creditRow, { backgroundColor: c.background, borderColor: c.border }]}
+            >
+              <Ionicons name="gift-outline" size={18} color={c.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.addrName, { color: c.text }]}>
+                  Use {formatPaise(creditPreview)} credit
+                </Text>
+                <Text style={[styles.addrLine, { color: c.textSecondary }]}>
+                  Applied when the payment is created — Razorpay charges the remainder (₹1
+                  minimum).
+                </Text>
+              </View>
+              <Switch
+                value={useCredit}
+                onValueChange={setUseCredit}
+                accessibilityLabel={`Use ${formatPaise(creditPreview)} credit on this order`}
+                trackColor={{ false: 'rgba(120,150,210,0.35)', true: c.primary }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+          )}
+
           <FormError message={err} />
           <PrimaryButton
-            title={address ? `Pay ${formatPaise(total)}` : 'Add address to continue'}
+            title={
+              address
+                ? `Pay ${formatPaise(useCredit && creditPreview > 0 ? Math.max(100, total - creditPreview) : total)}`
+                : 'Add address to continue'
+            }
             onPress={pay}
             loading={busy}
           />
           <Text style={[styles.note, { color: c.textFaint }]}>
-            One unit is reserved for you while you pay. The final amount is charged by Razorpay
-            exactly as shown.
+            One unit is reserved for you while you pay.{' '}
+            {useCredit && creditPreview > 0
+              ? 'Credit and any first-purchase discount are applied server-side — Razorpay shows the exact final amount before you pay.'
+              : 'The final amount is charged by Razorpay exactly as shown.'}
           </Text>
         </View>
       </View>
@@ -213,5 +261,13 @@ const styles = StyleSheet.create({
   },
   addrName: { fontSize: 14, fontFamily: Fonts.sansMedium },
   addrLine: { fontSize: 12, fontFamily: Fonts.sans, marginTop: 1 },
+  creditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: Spacing.three,
+  },
   note: { fontSize: 11, fontFamily: Fonts.sans, lineHeight: 15, textAlign: 'center' },
 });

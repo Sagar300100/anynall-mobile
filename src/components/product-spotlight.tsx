@@ -8,11 +8,13 @@
 // screen doesn't change shape when a lot starts and ends.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { formatPaise } from '@/lib/commerce';
-import type { ProductDoc } from '@/lib/realtime';
+import { activeFlashSale, type ProductDoc } from '@/lib/realtime';
+import { msUntil } from '@/lib/server-time';
 
 const SHADOW = {
   textShadowColor: 'rgba(0,0,0,0.85)',
@@ -42,6 +44,41 @@ export function pickSpotlight(products: ProductDoc[]): ProductDoc | null {
   return buyable.find((p) => p.pinned) || buyable[0] || null;
 }
 
+/** "4:59" — flash countdowns are minutes-scale, so no leading zero pad on
+ *  the minutes the way the auction clock does. */
+export function flashClock(msLeft: number): string {
+  const s = Math.max(0, Math.ceil(msLeft / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The product's RUNNING flash sale with a live ms-remaining, or null.
+ *
+ * Ticks once a second against the SERVER-corrected clock (msUntil), exactly
+ * like the auction countdown — endsAt is a server timestamp, and a device
+ * clock a few seconds off must not show a flash as over (or still on) when
+ * it isn't. The tick's own re-render is what retires the flash at zero:
+ * activeFlashSale() re-evaluates and returns null, so callers simply render
+ * the plain price again. The server re-checks endsAt at charge time; this
+ * hook only makes the DISPLAY honest.
+ */
+export function useFlashSale(
+  product: Pick<ProductDoc, 'flashSale'>
+): { pricePaise: number; endsAt: string; msLeft: number } | null {
+  const flash = activeFlashSale(product);
+  const endsAt = flash?.endsAt ?? null;
+  const [msLeft, setMsLeft] = useState(() => msUntil(endsAt));
+  useEffect(() => {
+    if (!endsAt) return;
+    const tick = () => setMsLeft(msUntil(endsAt));
+    tick();
+    const idInterval = setInterval(tick, 1000);
+    return () => clearInterval(idInterval);
+  }, [endsAt]);
+  if (!flash) return null;
+  return { pricePaise: flash.pricePaise, endsAt: flash.endsAt, msLeft };
+}
+
 export function ProductSpotlight({
   product,
   onBuy,
@@ -59,6 +96,12 @@ export function ProductSpotlight({
   const left = availableUnits(product);
   const blockedShort = blockedLabel || 'Buying unavailable';
   const conditionLabel = product.condition ? CONDITION_LABEL[product.condition] : null;
+  // Flash sale (Gap 8): while product.flashSale is running, the list price is
+  // struck through, the flash price takes its place, and a mm:ss chip counts
+  // down on the server clock. The server charges the flash price regardless —
+  // this is the display half of that contract.
+  const flash = useFlashSale(product);
+  const displayPrice = flash ? flash.pricePaise : product.price || 0;
 
   return (
     <View style={styles.wrap}>
@@ -78,7 +121,16 @@ export function ProductSpotlight({
         </View>
 
         <View style={{ alignItems: 'flex-end', gap: 2 }}>
-          <Text style={styles.price}>{formatPaise(product.price || 0)}</Text>
+          {flash && <Text style={styles.strike}>{formatPaise(product.price || 0)}</Text>}
+          <Text style={[styles.price, flash && styles.flashPrice]}>
+            {formatPaise(displayPrice)}
+          </Text>
+          {flash && (
+            <View style={styles.flashChip}>
+              <Ionicons name="flash" size={12} color="#FFD166" />
+              <Text style={styles.flashChipText}>{flashClock(flash.msLeft)}</Text>
+            </View>
+          )}
           {left <= 3 && <Text style={styles.left}>{left} left</Text>}
         </View>
       </View>
@@ -106,7 +158,7 @@ export function ProductSpotlight({
         ]}
       >
         <Text style={styles.buyText}>
-          {blockedReason ? blockedShort : `Buy: ${formatPaise(product.price || 0)}`}
+          {blockedReason ? blockedShort : `Buy: ${formatPaise(displayPrice)}`}
         </Text>
         {!blockedReason && (
           <View style={styles.chevrons}>
@@ -132,6 +184,26 @@ const styles = StyleSheet.create({
   meta: { color: 'rgba(159,180,216,0.9)', fontSize: 14, fontFamily: Fonts.sans, ...SHADOW },
   price: { color: '#FFFFFF', fontSize: 21, fontFamily: Fonts.sansSemiBold, ...SHADOW },
   left: { color: '#FF6B6B', fontSize: 13, fontFamily: Fonts.sansMedium, ...SHADOW },
+
+  // ── Flash sale ────────────────────────────────────────────────────────
+  strike: {
+    color: 'rgba(214,224,242,0.75)',
+    fontSize: 14,
+    fontFamily: Fonts.sansMedium,
+    textDecorationLine: 'line-through',
+    ...SHADOW,
+  },
+  flashPrice: { color: '#FFD166' },
+  flashChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(24,32,52,0.8)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  flashChipText: { color: '#FFD166', fontSize: 12.5, fontFamily: Fonts.sansSemiBold },
 
   blocked: {
     flexDirection: 'row',

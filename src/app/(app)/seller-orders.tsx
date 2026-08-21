@@ -13,10 +13,13 @@
 // order. The full address rides on the courier label only.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import * as WebBrowser from 'expo-web-browser';
-import { useCallback, useState } from 'react';
+import { getDownloadURL, ref as storageRef } from 'firebase/storage';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -31,6 +34,15 @@ import { useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { humanizeStatus } from '@/lib/commerce';
+import { storage } from '@/lib/firebase';
+import {
+  complaintCategoryLabel,
+  isEndpointMissing,
+  markDelivered,
+  protectionErrorMessage,
+  resolveDispute,
+  PROTECTION_STATUS,
+} from '@/lib/protection';
 import { getSellingOrders, ORDER_STATUS, type SellingOrder } from '@/lib/seller-hub';
 import { getShippingStatus, requestPickup, shipOrder, trackOrder, SHIP_STAGE } from '@/lib/shipping';
 
@@ -171,13 +183,19 @@ function OrderCard({
   onChanged: () => Promise<void>;
 }) {
   const c = useBrandColors();
-  const [busy, setBusy] = useState<'ship' | 'pickup' | 'track' | null>(null);
+  const [busy, setBusy] = useState<'ship' | 'pickup' | 'track' | 'delivered' | 'resolve' | null>(
+    null
+  );
   const [err, setErr] = useState<string | null>(null);
   const [tracking, setTracking] = useState<string | null>(null);
+  // Dispute detail (category/note/video + resolve actions) — expanded on tap.
+  const [reportOpen, setReportOpen] = useState(false);
 
   const shipment = order.shipment;
   const paid = order.status === 'paid';
   const shippingFee = order.pricing?.shippingFee;
+  const disputed = order.protection?.status === 'disputed';
+  const dispute = order.dispute || null;
 
   async function run(kind: 'ship' | 'pickup' | 'track') {
     if (busy) return;
@@ -205,11 +223,88 @@ function OrderCard({
     }
   }
 
-  // Shipment stage beats raw order status once booking starts.
+  /** Seller fallback for COD/self-ship: stamps deliveredAt and STARTS the
+   *  buyer's 24h complaint window, so the confirm spells that out. */
+  function confirmMarkDelivered() {
+    if (busy) return;
+    Alert.alert(
+      'Mark this order delivered?',
+      'Only confirm once the buyer actually has the package. It starts their 24-hour window to report a problem — your payment releases after that window passes quietly.',
+      [
+        { text: 'Not yet', style: 'cancel' },
+        {
+          text: 'Mark delivered',
+          onPress: async () => {
+            setBusy('delivered');
+            setErr(null);
+            try {
+              await markDelivered(order.id);
+              await onChanged();
+            } catch (e) {
+              setErr(
+                isEndpointMissing(e)
+                  ? 'Marking delivered isn’t available yet — buyer protection is still rolling out.'
+                  : protectionErrorMessage(e, 'Couldn’t mark this delivered — try again.')
+              );
+            } finally {
+              setBusy(null);
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  /** Resolve the dispute: refund concedes to the buyer, release closes the
+   *  report and pays the seller. Both are confirmed — they move real money. */
+  function confirmResolve(resolution: 'refund' | 'release') {
+    if (busy) return;
+    Alert.alert(
+      resolution === 'refund' ? 'Accept the refund?' : 'Release the payment?',
+      resolution === 'refund'
+        ? 'This accepts the buyer’s report: the held payment is refunded to the buyer and this order isn’t paid out to you.'
+        : 'This closes the buyer’s report and releases the held payment to you. Only do this once it’s genuinely resolved — Any&All reviews disputes.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: resolution === 'refund' ? 'Accept refund' : 'Release payment',
+          style: resolution === 'refund' ? 'destructive' : 'default',
+          onPress: async () => {
+            setBusy('resolve');
+            setErr(null);
+            try {
+              await resolveDispute(order.id, { resolution });
+              await onChanged();
+            } catch (e) {
+              setErr(
+                isEndpointMissing(e)
+                  ? 'Dispute resolution isn’t available yet — buyer protection is still rolling out.'
+                  : protectionErrorMessage(e, 'Couldn’t resolve the dispute — try again.')
+              );
+            } finally {
+              setBusy(null);
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  // Shipment stage beats raw order status once booking starts — but a live
+  // dispute beats everything: it needs the seller's action.
   const stage = shipment?.status ? SHIP_STAGE[shipment.status] : null;
   const statusMeta = ORDER_STATUS[order.status] || { label: humanizeStatus(order.status), tone: 'muted' as const };
-  const pillLabel = stage || (paid ? 'Paid · ready to ship' : statusMeta.label);
-  const pillColor = stage ? '#7CE0A8' : paid ? c.primary : statusMeta.tone === 'bad' ? c.danger : statusMeta.tone === 'warn' ? '#FFC46B' : c.textSecondary;
+  const protMeta = order.protection ? PROTECTION_STATUS[order.protection.status] : undefined;
+  const pillLabel = disputed
+    ? 'Disputed'
+    : order.protection?.status === 'refunded_pending' && protMeta
+      ? protMeta.label
+      : stage || (paid ? 'Paid · ready to ship' : statusMeta.label);
+  const pillColor = disputed
+    ? c.danger
+    : order.protection?.status === 'refunded_pending'
+      ? '#FFC46B'
+      : stage ? '#7CE0A8' : paid ? c.primary : statusMeta.tone === 'bad' ? c.danger : statusMeta.tone === 'warn' ? '#FFC46B' : c.textSecondary;
 
   return (
     <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
@@ -253,6 +348,85 @@ function OrderCard({
             >
               <Text style={[styles.labelLink, { color: c.primary }]}>Print label ↗</Text>
             </Pressable>
+          )}
+        </View>
+      )}
+
+      {/* ── Dispute (spec Gap 2): the buyer reported a problem ── */}
+      {disputed && (
+        <View style={[styles.disputeBox, { borderColor: 'rgba(248,113,113,0.4)' }]}>
+          <Pressable
+            onPress={() => setReportOpen((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: reportOpen }}
+            accessibilityLabel={`Buyer report: ${complaintCategoryLabel(dispute?.category)}. ${reportOpen ? 'Collapse' : 'Expand'} details`}
+            style={({ pressed }) => [styles.disputeHead, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Ionicons name="alert-circle" size={17} color={c.danger} />
+            <Text style={[styles.disputeTitle, { color: c.text }]} numberOfLines={2}>
+              Buyer report: {complaintCategoryLabel(dispute?.category)}
+            </Text>
+            <Ionicons
+              name={reportOpen ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color={c.textFaint}
+            />
+          </Pressable>
+
+          {reportOpen && (
+            <>
+              {!!dispute?.note && (
+                <Text style={[styles.disputeNote, { color: c.textSecondary }]}>
+                  “{dispute.note}”
+                </Text>
+              )}
+              {dispute?.videoPath ? (
+                <DisputeVideo videoPath={dispute.videoPath} />
+              ) : (
+                <Text style={[styles.disputeMeta, { color: c.textFaint }]}>
+                  No unboxing video attached.
+                </Text>
+              )}
+              <Text style={[styles.disputeMeta, { color: c.textFaint }]}>
+                The payment stays held until this is resolved. Accepting the refund returns it to
+                the buyer; releasing pays you.
+              </Text>
+              <View style={styles.actions}>
+                <Pressable
+                  onPress={() => confirmResolve('refund')}
+                  disabled={busy !== null}
+                  accessibilityRole="button"
+                  accessibilityLabel="Accept refund for the buyer"
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    styles.actionGhost,
+                    {
+                      borderColor: 'rgba(248,113,113,0.5)',
+                      opacity: pressed || busy !== null ? 0.6 : 1,
+                    },
+                  ]}
+                >
+                  {busy === 'resolve' ? (
+                    <ActivityIndicator size="small" color={c.danger} />
+                  ) : (
+                    <Text style={[styles.actionText, { color: c.danger }]}>Accept refund</Text>
+                  )}
+                </Pressable>
+                <Pressable
+                  onPress={() => confirmResolve('release')}
+                  disabled={busy !== null}
+                  accessibilityRole="button"
+                  accessibilityLabel="Release the payment to yourself"
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    styles.actionGhost,
+                    { borderColor: c.borderStrong, opacity: pressed || busy !== null ? 0.6 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.actionText, { color: c.text }]}>Release payment</Text>
+                </Pressable>
+              </View>
+            </>
           )}
         </View>
       )}
@@ -323,8 +497,77 @@ function OrderCard({
             )}
           </Pressable>
         )}
+        {/* Seller fallback for self-ship/COD: an order marked shipped with no
+            courier booked has no webhook to stamp delivery — the seller does. */}
+        {order.status === 'shipped' && !shipment?.awbCode && !order.deliveredAt && (
+          <Pressable
+            onPress={confirmMarkDelivered}
+            disabled={busy !== null}
+            accessibilityRole="button"
+            accessibilityLabel="Mark this order as delivered"
+            style={({ pressed }) => [
+              styles.actionBtn,
+              styles.actionGhost,
+              { borderColor: c.borderStrong, opacity: pressed || busy !== null ? 0.6 : 1 },
+            ]}
+          >
+            {busy === 'delivered' ? (
+              <ActivityIndicator size="small" color={c.text} />
+            ) : (
+              <Text style={[styles.actionText, { color: c.text }]}>Mark delivered</Text>
+            )}
+          </Pressable>
+        )}
       </View>
     </View>
+  );
+}
+
+/** The buyer's unboxing video, played inline (expo-video). The dispute doc
+ *  carries a Storage PATH — resolve it to a download URL first; Storage rules
+ *  give the seller-of-order read access (deployed with the backend wave, so a
+ *  refusal gets honest copy, not a crash). */
+function DisputeVideo({ videoPath }: { videoPath: string }) {
+  const c = useBrandColors();
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getDownloadURL(storageRef(storage, videoPath))
+      .then((u) => {
+        if (!cancelled) setUrl(u);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [videoPath]);
+
+  if (failed) {
+    return (
+      <Text style={[styles.disputeMeta, { color: c.danger }]}>
+        Couldn’t load the buyer’s video — access may not be rolled out yet. Try again later.
+      </Text>
+    );
+  }
+  if (!url) return <ActivityIndicator size="small" color={c.primary} style={styles.videoLoading} />;
+  return <DisputeVideoPlayer url={url} />;
+}
+
+/** Separate component so useVideoPlayer only ever mounts with a real URL. */
+function DisputeVideoPlayer({ url }: { url: string }) {
+  const player = useVideoPlayer(url);
+  return (
+    <VideoView
+      player={player}
+      style={styles.disputeVideo}
+      nativeControls
+      contentFit="contain"
+      accessibilityLabel="Buyer's unboxing video"
+    />
   );
 }
 
@@ -399,6 +642,21 @@ const styles = StyleSheet.create({
   labelLink: { fontSize: 12.5, fontFamily: Fonts.sansSemiBold, paddingVertical: 4 },
   trackingText: { fontSize: 12.5, fontFamily: Fonts.sansMedium },
   cardError: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+
+  // ── Dispute detail ──
+  disputeBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.two + Spacing.one,
+    gap: Spacing.two,
+    backgroundColor: 'rgba(248,113,113,0.06)',
+  },
+  disputeHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  disputeTitle: { flex: 1, fontSize: 13.5, fontFamily: Fonts.sansSemiBold, lineHeight: 18 },
+  disputeNote: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
+  disputeMeta: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 17 },
+  disputeVideo: { width: '100%', height: 220, borderRadius: 10, backgroundColor: '#000' },
+  videoLoading: { paddingVertical: Spacing.two },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   actionBtn: {

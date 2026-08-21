@@ -223,6 +223,21 @@ export interface BuyerOrder {
     awbCode: string | null;
   } | null;
   createdAt: string | null;
+  // ── Buyer protection (spec Gap 2) — additive, absent until the backend
+  //    wave stamps them on the order docs. See lib/protection.ts.
+  /** ISO — stamped by the Shiprocket webhook or the seller's fallback. */
+  deliveredAt?: string | null;
+  /** ISO — deliveredAt + 24h; the complaint window's hard edge. */
+  complaintWindowEndsAt?: string | null;
+  /** `{ status: in_window|disputed|released|refunded_pending }`. */
+  protection?: import('./protection').OrderProtection | null;
+  /** Present once a complaint is filed. */
+  dispute?: import('./protection').OrderDispute | null;
+  // ── Credits (spec Gap 6) — additive, surfaced when the order used them.
+  /** Paise of referral credit the server deducted from this order. */
+  creditApplied?: number;
+  /** First-purchase discount recorded on the order (paise, or { amountPaise }). */
+  firstBuyDiscount?: number | { amountPaise?: number; percent?: number } | null;
 }
 
 /** The signed-in buyer's orders, newest first (GET /api/orders/mine). */

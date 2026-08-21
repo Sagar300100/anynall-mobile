@@ -8,29 +8,68 @@
 // page, the full activity timeline, and a jump into chat with the seller.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { doc, getDoc } from 'firebase/firestore';
+import { getMetadata, ref as storageRef } from 'firebase/storage';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useBrandColors } from '@/components/ui/form';
+import { UnboxingRecorder } from '@/components/unboxing-recorder';
+import { PrimaryButton, useBrandColors } from '@/components/ui/form';
 import { Fonts, Spacing } from '@/constants/theme';
 import { listMyOrders, type BuyerOrder } from '@/lib/api';
 import { humanizeStatus } from '@/lib/commerce';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
-import { db } from '@/lib/firebase';
+import { auth, db, storage } from '@/lib/firebase';
+import {
+  COMPLAINT_CATEGORIES,
+  COMPLAINT_NOTE_MAX,
+  complaintCategoryLabel,
+  fileComplaint,
+  isEndpointMissing,
+  protectionErrorMessage,
+  type ComplaintCategory,
+  type OrderDispute,
+} from '@/lib/protection';
+import { msUntil } from '@/lib/server-time';
 import { trackOrder, SHIP_STAGE, type TrackingInfo } from '@/lib/shipping';
+import { unboxingStoragePath } from '@/lib/unboxing';
 
 function rupees(paise: number) {
   return `₹${((paise ?? 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** Success green — same as the recorder's saved state and other check marks. */
+const SUCCESS = '#34D399';
+const WARN = '#FFC46B';
+
+/** ms → "23h 59m" / "42m 10s" / "35s" for the complaint-window countdown. */
+function formatWindowLeft(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
 }
 
 /** Mirrors lib/seller-hub's ORDER_STATUS vocabulary — pending_payment → paid
@@ -63,6 +102,14 @@ export default function BuyerOrderDetailScreen() {
   const [loadingTrack, setLoadingTrack] = useState(false);
   const [messaging, setMessaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Buyer protection (spec Gap 2) ──
+  // The saved unboxing video's Storage path. Seeded from the dispute doc when
+  // one exists, or from a metadata probe of the canonical path (the buyer may
+  // have recorded on an earlier visit — the order docs don't carry the path
+  // pre-complaint, only local state does).
+  const [savedVideoPath, setSavedVideoPath] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -97,6 +144,52 @@ export default function BuyerOrderDetailScreen() {
     };
   }, [id]);
 
+  // Seed the recorder with an already-uploaded take: the canonical path is
+  // deterministic (unboxing/{uid}/{orderId}/video.mp4), so ONE metadata probe
+  // says whether this buyer already saved a video for this order. Every
+  // failure (no video yet, Storage rules not deployed) leaves the recorder
+  // idle — never an error, the buyer just records fresh. A dispute doc's own
+  // videoPath needs no probe: it's DERIVED at render, never synced here.
+  useEffect(() => {
+    if (!order || order.protection?.status !== 'in_window' || order.dispute?.videoPath) return;
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    let cancelled = false;
+    const path = unboxingStoragePath(uid, order.id);
+    getMetadata(storageRef(storage, path))
+      .then(() => {
+        if (!cancelled) setSavedVideoPath((p) => p || path);
+      })
+      .catch(() => {
+        /* no saved video — the recorder starts idle */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [order]);
+
+  const handleVideoSaved = useCallback((path: string) => {
+    setSavedVideoPath(path);
+  }, []);
+
+  const openReport = useCallback(() => setReportOpen(true), []);
+  const closeReport = useCallback(() => setReportOpen(false), []);
+
+  /** Complaint landed server-side — mirror it onto the local order so the
+   *  screen flips to the disputed state without a refetch. */
+  const handleFiled = useCallback((dispute: OrderDispute) => {
+    setReportOpen(false);
+    setOrder((prev) =>
+      prev
+        ? {
+            ...prev,
+            protection: { ...(prev.protection || {}), status: 'disputed' },
+            dispute,
+          }
+        : prev
+    );
+  }, []);
+
   async function messageSeller() {
     if (!order?.showId || messaging) return;
     setMessaging(true);
@@ -125,6 +218,16 @@ export default function BuyerOrderDetailScreen() {
 
   const shipment = order?.shipment;
   const stage = shipment?.status ? SHIP_STAGE[shipment.status] || shipment.status : null;
+
+  // Buyer protection: render the section only for states the order genuinely
+  // carries. `in_window` additionally requires the delivered stamp — the
+  // window doesn't exist before delivery.
+  const protectionStatus = order?.protection?.status || null;
+  const showProtection =
+    !!protectionStatus && (protectionStatus !== 'in_window' || !!order?.deliveredAt);
+  // Derived, never synced via an effect: a filed dispute already names the
+  // video, and this mount's own recording (savedVideoPath) wins over it.
+  const videoPath = savedVideoPath || order?.dispute?.videoPath || null;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
@@ -288,6 +391,83 @@ export default function BuyerOrderDetailScreen() {
             )}
           </View>
 
+          {/* ── Buyer protection (spec Gap 2) ── */}
+          {showProtection && order && (
+            <>
+              <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>
+                BUYER PROTECTION
+              </Text>
+
+              {protectionStatus === 'in_window' ? (
+                <ProtectionWindow order={order} onReport={openReport}>
+                  <UnboxingRecorder
+                    orderId={order.id}
+                    existingPath={videoPath}
+                    onSaved={handleVideoSaved}
+                  />
+                </ProtectionWindow>
+              ) : protectionStatus === 'disputed' ? (
+                <View
+                  style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+                >
+                  <View style={styles.protTitleRow}>
+                    <Ionicons name="alert-circle" size={18} color={WARN} />
+                    <Text style={[styles.protTitle, { color: c.text }]}>
+                      Report filed — {complaintCategoryLabel(order.dispute?.category)}
+                    </Text>
+                  </View>
+                  {!!order.dispute?.note && (
+                    <Text style={[styles.body, { color: c.textSecondary }]}>
+                      “{order.dispute.note}”
+                    </Text>
+                  )}
+                  {!!order.dispute?.filedAt && (
+                    <Text style={[styles.meta, { color: c.textFaint }]}>
+                      Filed {shortDate(order.dispute.filedAt)}
+                      {order.dispute?.videoPath ? '  ·  Unboxing video attached' : ''}
+                    </Text>
+                  )}
+                  <Text style={[styles.body, { color: c.textSecondary }]}>
+                    The seller and Any&All are reviewing — your payment stays held.
+                  </Text>
+                </View>
+              ) : protectionStatus === 'released' ? (
+                <View
+                  style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+                >
+                  <View style={styles.protTitleRow}>
+                    <Ionicons name="shield-checkmark" size={18} color={SUCCESS} />
+                    <Text style={[styles.protTitle, { color: c.text }]}>
+                      Payment released to the seller
+                      {order.protection?.releasedAt
+                        ? ` on ${shortDate(order.protection.releasedAt)}`
+                        : order.complaintWindowEndsAt
+                          ? ` on ${shortDate(order.complaintWindowEndsAt)}`
+                          : ''}
+                    </Text>
+                  </View>
+                  <Text style={[styles.body, { color: c.textSecondary }]}>
+                    Your payment was held by Any&All until 24 hours after delivery. No complaint
+                    was filed in that window, so it was released to the seller.
+                  </Text>
+                </View>
+              ) : protectionStatus === 'refunded_pending' ? (
+                <View
+                  style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+                >
+                  <View style={styles.protTitleRow}>
+                    <Ionicons name="return-down-back" size={18} color={SUCCESS} />
+                    <Text style={[styles.protTitle, { color: c.text }]}>Refund on its way</Text>
+                  </View>
+                  <Text style={[styles.body, { color: c.textSecondary }]}>
+                    Your report was accepted. The refund goes back to the payment method you paid
+                    with — reach out to support if it hasn’t landed in a few days.
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          )}
+
           {/* ── Help ── */}
           <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>NEED HELP?</Text>
           <View style={styles.actions}>
@@ -331,7 +511,250 @@ export default function BuyerOrderDetailScreen() {
           <Text style={[styles.errorText, { color: c.danger }]}>{error}</Text>
         </View>
       )}
+
+      {order && (
+        <ReportProblemSheet
+          visible={reportOpen}
+          orderId={order.id}
+          videoPath={videoPath}
+          onClose={closeReport}
+          onFiled={handleFiled}
+        />
+      )}
     </SafeAreaView>
+  );
+}
+
+/** The live 24h window: countdown card + honest held-payment copy, the
+ *  recorder (children), then the report entry — in that order, so the video
+ *  step sits between reading about the window and filing. Owns its own 1s
+ *  tick against the SERVER clock (msUntil), the same idiom as the auction
+ *  countdown, so every device shows the same deadline. */
+function ProtectionWindow({
+  order,
+  onReport,
+  children,
+}: {
+  order: BuyerOrder;
+  onReport: () => void;
+  children: ReactNode;
+}) {
+  const c = useBrandColors();
+  const endsAt = order.complaintWindowEndsAt || null;
+  const [msLeft, setMsLeft] = useState(() => msUntil(endsAt));
+  useEffect(() => {
+    if (!endsAt) return;
+    const tick = () => setMsLeft(msUntil(endsAt));
+    tick();
+    const idInterval = setInterval(tick, 1000);
+    return () => clearInterval(idInterval);
+  }, [endsAt]);
+  // No deadline on the doc yet → the window is open as far as we know; the
+  // server re-checks on file anyway.
+  const windowOpen = endsAt ? msLeft > 0 : true;
+
+  return (
+    <>
+      <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+        <View style={styles.protTitleRow}>
+          <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
+          <Text style={[styles.protTitle, { color: c.text }]}>Payment protection</Text>
+          {!!endsAt && windowOpen && (
+            <View style={[styles.pill, { borderColor: 'rgba(52,211,153,0.5)' }]}>
+              <Text style={[styles.pillText, { color: SUCCESS }]}>
+                {formatWindowLeft(msLeft)} left
+              </Text>
+            </View>
+          )}
+        </View>
+        <Text style={[styles.body, { color: c.textSecondary }]}>
+          Your payment is held by Any&All until 24 hours after delivery. No complaint in that
+          window releases it to the seller.
+        </Text>
+        {!!order.deliveredAt && (
+          <Text style={[styles.meta, { color: c.textFaint }]}>
+            Delivered {shortDate(order.deliveredAt)}
+          </Text>
+        )}
+      </View>
+
+      {children}
+
+      {windowOpen ? (
+        <Pressable
+          onPress={onReport}
+          accessibilityRole="button"
+          accessibilityLabel="Report a problem with this order"
+          style={({ pressed }) => [
+            styles.reportBtn,
+            { borderColor: 'rgba(248,113,113,0.45)', opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Ionicons name="flag-outline" size={15} color={c.danger} />
+          <Text style={[styles.reportBtnText, { color: c.danger }]}>Report a problem</Text>
+        </Pressable>
+      ) : (
+        <Text style={[styles.hint, { color: c.textFaint }]}>
+          The 24-hour report window has closed — your payment is being released to the seller.
+        </Text>
+      )}
+    </>
+  );
+}
+
+/** "Report a problem" sheet: the spec's five categories, an optional note,
+ *  and a HARD gate on the saved unboxing video — the complaint endpoint
+ *  rejects a filing without one, so the sheet explains instead of failing. */
+function ReportProblemSheet({
+  visible,
+  orderId,
+  videoPath,
+  onClose,
+  onFiled,
+}: {
+  visible: boolean;
+  orderId: string;
+  /** Saved unboxing-video Storage path — REQUIRED to submit. */
+  videoPath: string | null;
+  onClose: () => void;
+  onFiled: (dispute: OrderDispute) => void;
+}) {
+  const c = useBrandColors();
+  const [category, setCategory] = useState<ComplaintCategory | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    if (!category || !videoPath || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await fileComplaint(orderId, { category, note: note.trim(), videoPath });
+      onFiled({
+        category,
+        note: note.trim() || null,
+        videoPath,
+        filedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      setErr(
+        isEndpointMissing(e)
+          ? 'Problem reports aren’t available yet — this protection feature is still rolling out. Contact support and we’ll handle it directly.'
+          : protectionErrorMessage(e, 'Couldn’t file your report — please try again.')
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.sheetScrim}>
+        <View
+          style={[styles.sheet, { backgroundColor: c.backgroundElement, borderColor: c.border }]}
+        >
+          <View style={styles.sheetHead}>
+            <Text style={[styles.sheetTitle, { color: c.text }]}>Report a problem</Text>
+            <Pressable
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Close the report form"
+            >
+              <Ionicons name="close" size={20} color={c.textSecondary} />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            style={styles.sheetScroll}
+            contentContainerStyle={styles.sheetScrollInner}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={[styles.hint, { color: c.textSecondary }]}>
+              What went wrong with this order?
+            </Text>
+
+            {COMPLAINT_CATEGORIES.map((cat) => {
+              const selected = category === cat.value;
+              return (
+                <Pressable
+                  key={cat.value}
+                  onPress={() => setCategory(cat.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={cat.label}
+                  style={({ pressed }) => [
+                    styles.catRow,
+                    {
+                      borderColor: selected ? c.primary : c.border,
+                      backgroundColor: selected ? 'rgba(77,184,255,0.08)' : 'transparent',
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={selected ? 'radio-button-on' : 'radio-button-off'}
+                    size={19}
+                    color={selected ? c.primary : c.textFaint}
+                  />
+                  <View style={styles.catText}>
+                    <Text style={[styles.catLabel, { color: c.text }]}>{cat.label}</Text>
+                    <Text style={[styles.catHint, { color: c.textFaint }]}>{cat.hint}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="Add details (optional)"
+              placeholderTextColor={c.textFaint}
+              multiline
+              maxLength={COMPLAINT_NOTE_MAX}
+              accessibilityLabel="Details about the problem"
+              style={[
+                styles.noteInput,
+                { color: c.text, borderColor: c.border, backgroundColor: c.background },
+              ]}
+            />
+
+            {/* The video gate — honest about WHY it's required. */}
+            {videoPath ? (
+              <View style={[styles.videoState, { borderColor: 'rgba(52,211,153,0.4)' }]}>
+                <Ionicons name="videocam" size={16} color={SUCCESS} />
+                <Text style={[styles.videoStateText, { color: c.textSecondary }]}>
+                  Unboxing video attached — it’s the evidence backing your report.
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.videoState, { borderColor: 'rgba(255,196,107,0.4)' }]}>
+                <Ionicons name="videocam-off-outline" size={16} color={WARN} />
+                <Text style={[styles.videoStateText, { color: c.textSecondary }]}>
+                  A saved unboxing video is required — it’s what lets Any&All verify the problem
+                  instead of taking anyone’s word for it. Close this and record one first.
+                </Text>
+              </View>
+            )}
+
+            {!!err && <Text style={[styles.errorText, { color: c.danger }]}>{err}</Text>}
+
+            <PrimaryButton
+              title="Submit report"
+              onPress={submit}
+              loading={busy}
+              disabled={!category || !videoPath}
+            />
+            <Text style={[styles.hint, { color: c.textFaint }]}>
+              Filing a report holds your payment until it’s resolved. You can file one report per
+              order, inside 24 hours of delivery.
+            </Text>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -408,4 +831,67 @@ const styles = StyleSheet.create({
   },
   actionGhost: { backgroundColor: 'transparent', borderWidth: 1 },
   actionText: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
+
+  // ── Buyer protection ──
+  protTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  protTitle: { flex: 1, fontSize: 15, fontFamily: Fonts.sansSemiBold, lineHeight: 20 },
+  reportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 999,
+    minHeight: 46,
+  },
+  reportBtnText: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
+
+  // ── Report-a-problem sheet ──
+  sheetScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(2,6,16,0.72)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderWidth: 1,
+    padding: Spacing.three,
+    paddingBottom: Spacing.five,
+    gap: Spacing.two,
+  },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sheetTitle: { fontSize: 20, fontFamily: Fonts.sansSemiBold },
+  sheetScroll: { maxHeight: 520 },
+  sheetScrollInner: { gap: Spacing.two },
+  catRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two + Spacing.one,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two + Spacing.one,
+  },
+  catText: { flex: 1, gap: 1 },
+  catLabel: { fontSize: 14, fontFamily: Fonts.sansMedium },
+  catHint: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 16 },
+  noteInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 74,
+    padding: Spacing.three,
+    fontSize: 14,
+    fontFamily: Fonts.sans,
+    textAlignVertical: 'top',
+  },
+  videoState: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: Spacing.two + Spacing.one,
+  },
+  videoStateText: { flex: 1, fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
 });

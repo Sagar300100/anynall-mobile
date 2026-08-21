@@ -821,6 +821,7 @@ export default function ShowRoomScreen() {
         visible={shopOpen}
         showId={showId}
         uid={auth.currentUser?.uid ?? null}
+        isLive={isLive}
         onClose={() => setShopOpen(false)}
         onCountChange={setShopCount}
       />

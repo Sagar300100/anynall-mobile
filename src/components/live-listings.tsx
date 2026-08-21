@@ -28,27 +28,39 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CreateListing, type ListingMode } from '@/components/create-listing';
-import { SheetHeader, TONE } from '@/components/listing-parts';
+import { FieldBox, SheetHeader, TONE } from '@/components/listing-parts';
+import { flashClock, useFlashSale } from '@/components/product-spotlight';
 import { Fonts, Spacing } from '@/constants/theme';
 import { createAuction, formatPaise } from '@/lib/commerce';
+import { entryCount } from '@/lib/giveaways';
 import {
+  acceptOffer,
   attachProductToShow,
+  declineOffer,
   detachProductFromShow,
+  drawGiveawayWinner,
+  FLASH_MINUTES_MAX,
+  FLASH_MINUTES_MIN,
   getMyProducts,
+  getOpenOffers,
   getSellingOrders,
   pinProduct,
   serverMessage,
+  setFlashSale,
   unpinProduct,
+  type OfferRecord,
   type SellerProduct,
   type SellingOrder,
 } from '@/lib/seller-hub';
+import { serverNow } from '@/lib/server-time';
 
-type Tab = 'auction' | 'buy-it-now' | 'giveaway' | 'sold' | 'pending';
+type Tab = 'auction' | 'buy-it-now' | 'giveaway' | 'offers' | 'sold' | 'pending';
 
 const TABS: { value: Tab; label: string }[] = [
   { value: 'auction', label: 'Auction' },
   { value: 'buy-it-now', label: 'Buy Now' },
   { value: 'giveaway', label: 'Giveaway' },
+  { value: 'offers', label: 'Offers' },
   { value: 'sold', label: 'Sold' },
   { value: 'pending', label: 'Pending Payment' },
 ];
@@ -71,12 +83,17 @@ export function LiveListings({
   visible,
   showId,
   uid,
+  isLive,
   onClose,
   onCountChange,
 }: {
   visible: boolean;
   showId: string;
   uid: string | null;
+  /** Whether the show is currently on air — the giveaway draw is an on-air
+   *  action (the server announces the winner in chat), so the button only
+   *  appears while live. */
+  isLive?: boolean;
   onClose: () => void;
   /** Lets the show room's Shop badge stay honest after a listing is added. */
   onCountChange?: (n: number) => void;
@@ -97,6 +114,28 @@ export function LiveListings({
   const [form, setForm] = useState<ListingMode | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
   const [pinBusy, setPinBusy] = useState<string | null>(null);
+
+  // ── Gap 8 state ──
+  // Open offers on this seller's products. null = not loaded; a failed fetch
+  // flips offersFailed so the tab says so instead of claiming "no offers".
+  const [offers, setOffers] = useState<OfferRecord[] | null>(null);
+  const [offersFailed, setOffersFailed] = useState(false);
+  const [offerBusy, setOfferBusy] = useState<string | null>(null);
+  // Giveaway entry counts (count aggregate). null = read failed (rules may
+  // not be deployed) — shown as unknown, never as zero.
+  const [entryCounts, setEntryCounts] = useState<Record<string, number | null>>({});
+  const [drawing, setDrawing] = useState<string | null>(null);
+  /** Winners drawn in THIS session, so the row updates before the products
+   *  API starts returning giveawayWinner. */
+  const [drawnLocal, setDrawnLocal] = useState<Record<string, string>>({});
+  // Flash sales: the product being configured, and flashes started this
+  // session (the products API may not return flashSale until the backend
+  // wave lands — the server's own response is the honest source meanwhile).
+  const [flashFor, setFlashFor] = useState<SellerProduct | null>(null);
+  const [flashBusy, setFlashBusy] = useState<string | null>(null);
+  const [localFlash, setLocalFlash] = useState<
+    Record<string, { pricePaise: number; endsAt: string }>
+  >({});
 
   /** Put a lot up for bidding. Price/step/duration come from the listing's own
    *  auction prefill when it has one, otherwise from its price. */
@@ -161,7 +200,148 @@ export function LiveListings({
     } finally {
       setLoading(false);
     }
+    // Offers fail soft on their own: the endpoint ships in the backend wave,
+    // and a 404 there must not take the listings down with it.
+    try {
+      const r = await getOpenOffers('seller', 'open');
+      setOffers(Array.isArray(r.offers) ? r.offers : []);
+      setOffersFailed(false);
+    } catch {
+      setOffers([]);
+      setOffersFailed(true);
+    }
   }, [showId, onCountChange]);
+
+  // Entry counts for this show's giveaways — one aggregate read per giveaway,
+  // keyed on the SET of giveaway ids so a price edit doesn't re-read them.
+  const giveawayIds = (products ?? [])
+    .filter((p) => p.kind === 'giveaway')
+    .map((p) => p.id)
+    .sort()
+    .join(',');
+  useEffect(() => {
+    if (!visible || !giveawayIds) return;
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve();
+      for (const pid of giveawayIds.split(',')) {
+        const n = await entryCount(showId, pid).catch(() => null);
+        if (cancelled) return;
+        setEntryCounts((prev) => (prev[pid] === n ? prev : { ...prev, [pid]: n }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, giveawayIds, showId]);
+
+  /** Draw the giveaway winner — server-side random pick that announces in
+   *  chat and creates the zero-amount order, so it's confirmed first. */
+  function confirmDraw(p: SellerProduct) {
+    const n = entryCounts[p.id];
+    Alert.alert(
+      'Draw the winner?',
+      `${
+        n != null ? `One of ${n} ${n === 1 ? 'entry' : 'entries'}` : 'One entry'
+      } is picked at random, announced in the chat, and gets a free order for shipping. This can’t be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Draw winner', onPress: () => draw(p) },
+      ]
+    );
+  }
+
+  async function draw(p: SellerProduct) {
+    if (drawing) return;
+    setDrawing(p.id);
+    try {
+      const r = await drawGiveawayWinner(showId, p.id);
+      setDrawnLocal((prev) => ({ ...prev, [p.id]: r.winner.name }));
+      Alert.alert(
+        '🎉 Winner drawn',
+        `${r.winner.name} wins ${p.title}. It’s been announced in the chat, and a free order was created so you can ship it.`
+      );
+      load();
+    } catch (err) {
+      Alert.alert('Couldn’t draw a winner', serverMessage(err, 'Please try again.'));
+    } finally {
+      setDrawing(null);
+    }
+  }
+
+  /** Accept creates a reserved order with a 30-minute payment window (the
+   *  winner-order mechanics), so it gets a confirm; decline is instant. */
+  function confirmAcceptOffer(o: OfferRecord) {
+    Alert.alert(
+      'Accept this offer?',
+      `${o.buyerName || 'The buyer'} pays ${formatPaise(o.amountPaise)}${
+        o.productTitle ? ` for ${o.productTitle}` : ''
+      }. A reserved order is created and they get 30 minutes to pay.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Accept', onPress: () => actOnOffer(o, 'accept') },
+      ]
+    );
+  }
+
+  async function actOnOffer(o: OfferRecord, action: 'accept' | 'decline') {
+    if (offerBusy) return;
+    setOfferBusy(o.id);
+    try {
+      if (action === 'accept') {
+        await acceptOffer(o.id);
+        Alert.alert(
+          'Order created',
+          'The buyer has 30 minutes to pay at the offer price. Watch it under Pending Payment.'
+        );
+      } else {
+        await declineOffer(o.id);
+      }
+      setOffers((prev) => (prev ?? []).filter((x) => x.id !== o.id));
+      load();
+    } catch (err) {
+      Alert.alert(
+        action === 'accept' ? 'Couldn’t accept the offer' : 'Couldn’t decline the offer',
+        serverMessage(err, 'Please try again.')
+      );
+    } finally {
+      setOfferBusy(null);
+    }
+  }
+
+  /** End an active flash early — POST with minutes: 0. The spec only defines
+   *  1–60, so the backend may refuse; the fallback message is honest about
+   *  the sale lapsing on its own timer either way. */
+  function confirmEndFlash(p: SellerProduct, pricePaise: number) {
+    Alert.alert('End this flash sale early?', 'Buyers pay the normal list price again.', [
+      { text: 'Keep it running', style: 'cancel' },
+      { text: 'End now', onPress: () => endFlash(p, pricePaise) },
+    ]);
+  }
+
+  async function endFlash(p: SellerProduct, pricePaise: number) {
+    if (flashBusy) return;
+    setFlashBusy(p.id);
+    try {
+      await setFlashSale(p.id, pricePaise, 0);
+      setLocalFlash((prev) => {
+        const next = { ...prev };
+        delete next[p.id];
+        return next;
+      });
+      await load();
+    } catch (err) {
+      Alert.alert(
+        'Couldn’t end the flash sale',
+        serverMessage(
+          err,
+          'Ending early isn’t supported yet — the sale will end on its own timer.'
+        )
+      );
+    } finally {
+      setFlashBusy(null);
+    }
+  }
 
   // Reload each time the sheet opens. The await defers the first setState out
   // of the effect body itself, which the compiler's purity rules require.
@@ -184,7 +364,7 @@ export function LiveListings({
   const rows =
     tab === 'sold'
       ? matching.filter((p) => p.sold > 0)
-      : tab === 'pending'
+      : tab === 'pending' || tab === 'offers'
         ? []
         : matching.filter((p) => p.kind === tab);
 
@@ -196,7 +376,15 @@ export function LiveListings({
     .filter((o) => UNPAID.has(o.status))
     .filter((o) => !term || o.productTitle.toLowerCase().includes(term));
 
-  const count = tab === 'pending' ? pendingOrders.length : sorted.length;
+  // Scoped to THIS show when the offer says which show it belongs to; an
+  // offer without a showId (leaner backend response) still renders rather
+  // than silently vanishing.
+  const offerRows = (offers ?? [])
+    .filter((o) => (o.showId ?? showId) === showId)
+    .filter((o) => !term || (o.productTitle || '').toLowerCase().includes(term));
+
+  const count =
+    tab === 'pending' ? pendingOrders.length : tab === 'offers' ? offerRows.length : sorted.length;
 
   /** The category this seller most recently listed in — real, or ''. */
   const recentCategory = all.find((p) => !!p.category)?.category ?? '';
@@ -313,6 +501,64 @@ export function LiveListings({
                 </View>
               ))
             )
+          ) : tab === 'offers' ? (
+            offerRows.length === 0 ? (
+              <Empty
+                message={
+                  offersFailed
+                    ? 'Couldn’t load offers.'
+                    : 'No open offers right now.\nOffers buyers make on your\nBuy Now items appear here.'
+                }
+              />
+            ) : (
+              offerRows.map((o) => (
+                <View key={o.id} style={styles.row}>
+                  <View style={styles.rowThumbEmpty}>
+                    <Ionicons name="pricetags-outline" size={20} color={TONE.faint} />
+                  </View>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {o.productTitle || 'Offer'}
+                    </Text>
+                    <Text style={styles.rowMeta} numberOfLines={2}>
+                      {o.buyerName ? `${o.buyerName} · ` : ''}
+                      {formatPaise(o.amountPaise)} offered
+                      {o.listPricePaise ? ` · list ${formatPaise(o.listPricePaise)}` : ''}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => actOnOffer(o, 'decline')}
+                    disabled={offerBusy !== null}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Decline the ${formatPaise(o.amountPaise)} offer`}
+                    style={({ pressed }) => [
+                      styles.declineBtn,
+                      offerBusy !== null && { opacity: 0.5 },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    {offerBusy === o.id ? (
+                      <ActivityIndicator color={TONE.text} size="small" />
+                    ) : (
+                      <Text style={styles.declineText}>Decline</Text>
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={() => confirmAcceptOffer(o)}
+                    disabled={offerBusy !== null}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Accept the ${formatPaise(o.amountPaise)} offer`}
+                    style={({ pressed }) => [
+                      styles.startBtn,
+                      offerBusy !== null && { opacity: 0.5 },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    <Text style={styles.startText}>Accept</Text>
+                  </Pressable>
+                </View>
+              ))
+            )
           ) : sorted.length === 0 ? (
             <Empty
               message={
@@ -324,7 +570,13 @@ export function LiveListings({
               }
             />
           ) : (
-            sorted.map((p) => (
+            sorted.map((p) => {
+              const winnerName = p.giveawayWinner?.name ?? drawnLocal[p.id] ?? null;
+              const entries = entryCounts[p.id];
+              // The product doc's flash (once the API returns it) or the one
+              // started this session — whichever exists.
+              const flashSale = p.flashSale ?? localFlash[p.id] ?? null;
+              return (
               <View key={p.id} style={styles.row}>
                 {p.thumbnail_url ? (
                   <Image source={{ uri: p.thumbnail_url }} style={styles.rowThumb} contentFit="cover" />
@@ -342,6 +594,10 @@ export function LiveListings({
                     {tab === 'sold' ? `${p.sold} sold` : `${Math.max(0, p.stock - p.sold)} available`}
                     {p.auctionConfig?.suddenDeath ? ' · Sudden Death' : ''}
                     {p.pinned ? ' · Spotlight' : ''}
+                    {p.kind === 'giveaway' && entries != null
+                      ? ` · ${entries} ${entries === 1 ? 'entry' : 'entries'}`
+                      : ''}
+                    {winnerName ? ` · Won by ${winnerName}` : ''}
                   </Text>
                 </View>
                 <Text style={styles.rowPrice}>{p.kind === 'giveaway' ? 'Free' : formatPaise(p.price)}</Text>
@@ -379,6 +635,18 @@ export function LiveListings({
                   </Pressable>
                 )}
 
+                {/* Flash sale — POST /api/products/:id/flash. Active flash
+                    shows the countdown chip (tap to end early); otherwise
+                    the bolt opens the price+minutes sheet. */}
+                {p.kind === 'buy-it-now' && tab === 'buy-it-now' && (
+                  <FlashCell
+                    flashSale={flashSale}
+                    busy={flashBusy === p.id}
+                    onStart={() => setFlashFor(p)}
+                    onEndEarly={(pricePaise) => confirmEndFlash(p, pricePaise)}
+                  />
+                )}
+
                 {/* Starting a lot is what puts it in front of buyers — the
                     backend allows one open auction per show and re-validates
                     ownership, stock and price. */}
@@ -401,13 +669,43 @@ export function LiveListings({
                     )}
                   </Pressable>
                 )}
+
+                {/* Draw the giveaway winner — an on-air action (the server
+                    announces in chat), so only while live and not yet drawn.
+                    With a known count of 0 the button says so and stays put;
+                    an UNKNOWN count (aggregate read failed) still allows the
+                    tap — the server refuses an empty draw with its own
+                    message. */}
+                {p.kind === 'giveaway' && tab === 'giveaway' && !!isLive && !winnerName && (
+                  <Pressable
+                    onPress={() => confirmDraw(p)}
+                    disabled={drawing !== null || entries === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Draw the winner for ${p.title}`}
+                    accessibilityState={{ disabled: drawing !== null || entries === 0 }}
+                    style={({ pressed }) => [
+                      styles.startBtn,
+                      (drawing !== null || entries === 0) && { opacity: 0.5 },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    {drawing === p.id ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <Text style={styles.startText}>
+                        {entries === 0 ? 'No entries' : 'Draw winner'}
+                      </Text>
+                    )}
+                  </Pressable>
+                )}
               </View>
-            ))
+              );
+            })
           )}
         </ScrollView>
 
         {/* Tooltip only while there is genuinely nothing to show. */}
-        {sorted.length === 0 && tab !== 'pending' && !loading && (
+        {sorted.length === 0 && tab !== 'pending' && tab !== 'offers' && !loading && (
           <View style={[styles.tooltip, { bottom: insets.bottom + 92 }]}>
             <Text style={styles.tooltipTitle}>Add products</Text>
             <Text style={styles.tooltipBody}>Tap here to add your first product listing.</Text>
@@ -469,6 +767,19 @@ export function LiveListings({
         onChanged={load}
       />
 
+      {/* ── Flash sale setup ── */}
+      {flashFor && (
+        <FlashSheet
+          product={flashFor}
+          onClose={() => setFlashFor(null)}
+          onStarted={(productId, flash) => {
+            setFlashFor(null);
+            if (flash) setLocalFlash((prev) => ({ ...prev, [productId]: flash }));
+            load();
+          }}
+        />
+      )}
+
       {/* ── Sort ── */}
       <Modal visible={sortOpen} transparent animationType="slide" onRequestClose={() => setSortOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setSortOpen(false)} accessibilityLabel="Close" />
@@ -513,6 +824,188 @@ export function LiveListings({
       />
     )}
     </>
+  );
+}
+
+/** Rupees typed by a human → integer paise. Null when unusable. */
+function rupeesToPaise(rupees: string): number | null {
+  const n = Number(rupees.replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const paise = Math.round(n * 100);
+  return Number.isSafeInteger(paise) ? paise : null;
+}
+
+/** The flash control on a Buy Now row. Its OWN component so the 1s countdown
+ *  re-renders one chip, not the whole list — and so useFlashSale retires the
+ *  chip at zero by itself. */
+function FlashCell({
+  flashSale,
+  busy,
+  onStart,
+  onEndEarly,
+}: {
+  flashSale: { pricePaise: number; endsAt: unknown } | null;
+  busy: boolean;
+  onStart: () => void;
+  /** Called with the running flash's price (the /flash body needs one). */
+  onEndEarly: (pricePaise: number) => void;
+}) {
+  const flash = useFlashSale({ flashSale });
+  if (flash) {
+    return (
+      <Pressable
+        onPress={() => onEndEarly(flash.pricePaise)}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel={`Flash sale at ${formatPaise(flash.pricePaise)}, ${flashClock(
+          flash.msLeft
+        )} left. End early`}
+        style={({ pressed }) => [
+          styles.flashChipBtn,
+          busy && { opacity: 0.5 },
+          pressed && { opacity: 0.8 },
+        ]}
+      >
+        {busy ? (
+          <ActivityIndicator color="#FFD166" size="small" />
+        ) : (
+          <>
+            <Ionicons name="flash" size={13} color="#FFD166" />
+            <Text style={styles.flashChipText}>{flashClock(flash.msLeft)}</Text>
+          </>
+        )}
+      </Pressable>
+    );
+  }
+  return (
+    <Pressable
+      onPress={onStart}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel="Start a flash sale"
+      style={({ pressed }) => [
+        styles.flashBtn,
+        busy && { opacity: 0.5 },
+        pressed && { opacity: 0.8 },
+      ]}
+    >
+      <Ionicons name="flash-outline" size={18} color={TONE.text} />
+    </Pressable>
+  );
+}
+
+/** Flash-sale setup: a price under list + a 1–60 minute window
+ *  (POST /api/products/:id/flash). The server re-validates both. */
+function FlashSheet({
+  product,
+  onClose,
+  onStarted,
+}: {
+  product: SellerProduct;
+  onClose: () => void;
+  /** The started flash as the server reported it (or a client echo of what
+   *  it accepted, when the response omits it) — for immediate display. */
+  onStarted: (productId: string, flash: { pricePaise: number; endsAt: string } | null) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [price, setPrice] = useState('');
+  const [minutes, setMinutes] = useState('10');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const pricePaise = rupeesToPaise(price);
+  const mins = Math.round(Number(minutes.replace(/[^0-9]/g, '')));
+  const priceOk = pricePaise != null && pricePaise < product.price;
+  const minsOk = Number.isFinite(mins) && mins >= FLASH_MINUTES_MIN && mins <= FLASH_MINUTES_MAX;
+
+  async function start() {
+    if (!priceOk || !minsOk || pricePaise == null || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await setFlashSale(product.id, pricePaise, mins);
+      onStarted(
+        product.id,
+        r.flashSale ?? {
+          pricePaise,
+          // The server accepted `minutes` — echo the window it granted so the
+          // chip can show at once even if the response body omits it.
+          endsAt: new Date(serverNow() + mins * 60_000).toISOString(),
+        }
+      );
+    } catch (e) {
+      setErr(serverMessage(e, 'Couldn’t start the flash sale — please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+      <View style={[styles.createSheet, { paddingBottom: insets.bottom + Spacing.three }]}>
+        <View style={styles.grabber} />
+        <Text style={styles.createTitle}>Flash sale</Text>
+        <Text style={styles.rowMeta}>
+          {product.title} · listed at {formatPaise(product.price)}. Buyers pay the flash
+          price until the timer runs out.
+        </Text>
+
+        <FieldBox
+          label="Flash price"
+          required
+          value={price}
+          onChangeText={setPrice}
+          placeholder={`Under ${formatPaise(product.price)}`}
+          keyboardType="number-pad"
+          prefix="₹"
+          accessibilityLabel="Flash price in rupees"
+        />
+        {!!price.trim() && !priceOk && (
+          <Text style={styles.flashError}>
+            The flash price must be under the list price ({formatPaise(product.price)}).
+          </Text>
+        )}
+
+        <FieldBox
+          label="Minutes (1–60)"
+          required
+          value={minutes}
+          onChangeText={setMinutes}
+          placeholder="10"
+          keyboardType="number-pad"
+          accessibilityLabel="Flash sale length in minutes"
+        />
+        {!!minutes.trim() && !minsOk && (
+          <Text style={styles.flashError}>Between 1 and 60 minutes.</Text>
+        )}
+
+        {!!err && <Text style={styles.flashError}>{err}</Text>}
+
+        <Pressable
+          onPress={start}
+          disabled={!priceOk || !minsOk || busy}
+          accessibilityRole="button"
+          accessibilityLabel="Start flash sale"
+          accessibilityState={{ disabled: !priceOk || !minsOk || busy }}
+          style={({ pressed }) => [
+            styles.flashStartBtn,
+            (!priceOk || !minsOk || busy) && { opacity: 0.5 },
+            pressed && { opacity: 0.85 },
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.startText}>
+              {priceOk && pricePaise != null
+                ? `Start · ${formatPaise(pricePaise)} for ${minsOk ? mins : '—'} min`
+                : 'Start flash sale'}
+            </Text>
+          )}
+        </Pressable>
+      </View>
+    </Modal>
   );
 }
 
@@ -851,6 +1344,53 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pinBtnOn: { backgroundColor: TONE.primary, borderColor: TONE.primary },
+
+  // ── Offers ────────────────────────────────────────────────────────────
+  declineBtn: {
+    borderWidth: 1,
+    borderColor: TONE.borderStrong,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    minHeight: 38,
+    minWidth: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  declineText: { color: TONE.text, fontSize: 13.5, fontFamily: Fonts.sansSemiBold },
+
+  // ── Flash sales ───────────────────────────────────────────────────────
+  flashBtn: {
+    width: 40,
+    height: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: TONE.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flashChipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,209,102,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,209,102,0.45)',
+    paddingHorizontal: 10,
+    minHeight: 38,
+    minWidth: 64,
+    justifyContent: 'center',
+  },
+  flashChipText: { color: '#FFD166', fontSize: 13, fontFamily: Fonts.sansSemiBold },
+  flashError: { color: '#FF8B8B', fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 17 },
+  flashStartBtn: {
+    minHeight: 52,
+    borderRadius: 999,
+    backgroundColor: TONE.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.one,
+  },
 
   attachRow: {
     flexDirection: 'row',
