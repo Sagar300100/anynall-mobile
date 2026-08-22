@@ -8,6 +8,7 @@
 // screen doesn't change shape when a lot starts and ends.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -157,13 +158,21 @@ export function ProductSpotlight({
           blockedReason ? { opacity: 0.5 } : pressed ? { opacity: 0.85 } : null,
         ]}
       >
+        {/* In-room CTA fill (spec §6.6): 135° #1E6FFF→#4DB8FF under the
+            existing content — colour change only, layout untouched. */}
+        <LinearGradient
+          colors={['#1E6FFF', '#4DB8FF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
         <Text style={styles.buyText}>
           {blockedReason ? blockedShort : `Buy: ${formatPaise(displayPrice)}`}
         </Text>
         {!blockedReason && (
           <View style={styles.chevrons}>
-            <Ionicons name="chevron-forward" size={17} color="#FFFFFF" />
-            <Ionicons name="chevron-forward" size={17} color="#FFFFFF" style={{ marginLeft: -9 }} />
+            <Ionicons name="chevron-forward" size={17} color="#04122B" />
+            <Ionicons name="chevron-forward" size={17} color="#04122B" style={{ marginLeft: -9 }} />
           </View>
         )}
       </Pressable>
@@ -182,7 +191,9 @@ const styles = StyleSheet.create({
   thumb: { width: 66, height: 66, borderRadius: 10 },
   title: { color: '#FFFFFF', fontSize: 18.5, fontFamily: Fonts.sansSemiBold, lineHeight: 23, ...SHADOW },
   meta: { color: 'rgba(159,180,216,0.9)', fontSize: 14, fontFamily: Fonts.sans, ...SHADOW },
-  price: { color: '#FFFFFF', fontSize: 21, fontFamily: Fonts.sansSemiBold, ...SHADOW },
+  // Prices render in the sky-blue accent (spec §6.6); the flash-sale amber
+  // override below still wins while a flash runs.
+  price: { color: '#4DB8FF', fontSize: 21, fontFamily: Fonts.sansSemiBold, ...SHADOW },
   left: { color: '#FF6B6B', fontSize: 13, fontFamily: Fonts.sansMedium, ...SHADOW },
 
   // ── Flash sale ────────────────────────────────────────────────────────
@@ -222,10 +233,13 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 56,
     borderRadius: 999,
-    backgroundColor: '#2E6BFF',
+    // Fill is the in-room CTA gradient rendered inside (spec §6.6); overflow
+    // hidden clips it to the pill.
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buyText: { color: '#FFFFFF', fontSize: 18, fontFamily: Fonts.sansSemiBold },
+  // Navy on the bright gradient (spec §6.6) — white failed contrast on #4DB8FF.
+  buyText: { color: '#04122B', fontSize: 18, fontFamily: Fonts.sansSemiBold },
   chevrons: { flexDirection: 'row', alignItems: 'center', marginLeft: -2 },
 });

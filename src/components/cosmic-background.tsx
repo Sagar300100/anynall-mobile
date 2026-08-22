@@ -124,9 +124,12 @@ export function CosmicAuthBackground() {
           settles the corners so nothing competes with the UI. */}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         <Defs>
+          {/* Blue-family lift (no purple — blue-on-black only): authAccent
+              #2B7FFF and logoCore #185AB6 at the same alphas/luminance the
+              old violet stops carried, so the composition reads unchanged. */}
           <RadialGradient id="lift" cx="50%" cy="26%" r="62%">
-            <Stop offset="0" stopColor="#8B5CF6" stopOpacity="0.20" />
-            <Stop offset="0.6" stopColor="#4C1D95" stopOpacity="0.06" />
+            <Stop offset="0" stopColor="#2B7FFF" stopOpacity="0.20" />
+            <Stop offset="0.6" stopColor="#185AB6" stopOpacity="0.06" />
             <Stop offset="1" stopColor="#000000" stopOpacity="0" />
           </RadialGradient>
           <RadialGradient id="vignette" cx="50%" cy="45%" r="75%">

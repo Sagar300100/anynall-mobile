@@ -1,9 +1,11 @@
 // Guest Profile — the logged-out state of the Profile tab, built to the
 // approved reference mock: layered account mark (offset crescent, dot grid,
-// violet sparkle, orbit arc with satellite dots), two-line heading, gradient
-// Sign in, "or" divider, blue-outlined Create an account, tinted icon-circle
-// benefit rows, and a faint skyline behind the footer. No fake user data.
-// The signed-in page lives in (app)/profile.tsx and is untouched.
+// electric-blue sparkle, orbit arc with satellite dots), two-line heading,
+// gradient Sign in, "or" divider, blue-outlined Create an account, tinted
+// icon-circle benefit rows, and a faint skyline behind the footer. No fake
+// user data. The signed-in page lives in (app)/profile.tsx and is untouched.
+// (The mock's violet accents are rendered in Brand.blueElectric — the spec's
+// rule is blue-on-black only, no purple.)
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -13,16 +15,16 @@ import Svg, { Circle, Defs, Path, RadialGradient, Stop, LinearGradient as SvgLin
 
 import { openSite, ProfileFooter } from '@/components/profile-footer';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, CtaGradientShell, Fonts, Spacing } from '@/constants/theme';
 
-const VIOLET = '#8B7CF6';
+const ACCENT = Brand.blueElectric; // the mock's violet accent, in blue
 const GREEN = '#34D399';
 
 /**
  * Account mark, per the mock: a big navy disc with a white person outline,
- * a darker offset crescent behind its right edge, a dot grid upper-left, a
- * violet four-point sparkle lower-left, and a thin orbit arc on the right
- * carrying two blue satellites and a violet one at its tail.
+ * a darker offset crescent behind its right edge, a dot grid upper-left, an
+ * electric-blue four-point sparkle lower-left, and a thin orbit arc on the
+ * right carrying two blue satellites and a brighter one at its tail.
  */
 function AccountMark() {
   // Canvas 240×210; disc centred at (120,100), r=58; orbit r=74.
@@ -44,7 +46,7 @@ function AccountMark() {
           </RadialGradient>
           <SvgLinearGradient id="orbit" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0%" stopColor="#4A8FE5" stopOpacity="0.9" />
-            <Stop offset="100%" stopColor={VIOLET} stopOpacity="0.9" />
+            <Stop offset="100%" stopColor={ACCENT} stopOpacity="0.9" />
           </SvgLinearGradient>
         </Defs>
 
@@ -62,12 +64,12 @@ function AccountMark() {
         <Path d="M139,29 A74,74 0 0 1 113,174" stroke="url(#orbit)" strokeWidth={1.5} fill="none" opacity={0.85} />
         <Circle cx={187} cy={75} r={4} fill="#4A8FE5" />
         <Circle cx={176} cy={148} r={3.2} fill="#6FA5EC" />
-        <Circle cx={113} cy={174} r={5} fill={VIOLET} />
+        <Circle cx={113} cy={174} r={5} fill={ACCENT} />
 
         {/* Four-point sparkle, lower-left. */}
         <Path
           d="M62,142 C64,149 66,151 73,153 C66,155 64,157 62,164 C60,157 58,155 51,153 C58,151 60,149 62,142 Z"
-          fill={VIOLET}
+          fill={ACCENT}
         />
       </Svg>
       <View style={styles.markIcon} pointerEvents="none">
@@ -172,8 +174,10 @@ export function GuestProfileScreen() {
             accessibilityLabel="Sign in"
             style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}
           >
+            {/* App-shell CTA ramp (blue→deep) — the old blue→purple stop is
+                off-palette. */}
             <LinearGradient
-              colors={['#3D7BF7', '#8058F8']}
+              colors={[...CtaGradientShell]}
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 0.5 }}
               style={styles.primaryBtn}
@@ -228,8 +232,8 @@ export function GuestProfileScreen() {
           <View style={[styles.benefitDivider, { backgroundColor: c.border }]} />
           <BenefitRow
             icon="chatbubble-outline"
-            tint={VIOLET}
-            tintBg="rgba(139,124,246,0.13)"
+            tint={ACCENT}
+            tintBg="rgba(107,182,255,0.13)"
             label="Seller conversations"
             support="Chat with sellers and get updates"
             onPress={() => router.push({ pathname: '/sign-in', params: { reason: 'inbox' } })}

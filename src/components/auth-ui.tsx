@@ -69,7 +69,7 @@ function headingStyle(size?: number) {
     : [styles.heading];
 }
 
-/** Heading word rendered in the brand blue→purple gradient. */
+/** Heading word rendered in the brand sky→bright blue gradient. */
 export function GradientWord({ children, size }: { children: string; size?: number }) {
   const s = headingStyle(size);
   if (!MaskedView) return <Text style={[s, { color: Brand.blueElectric }]}>{children}</Text>;

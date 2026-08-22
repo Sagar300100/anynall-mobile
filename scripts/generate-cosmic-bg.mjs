@@ -64,9 +64,13 @@ function fbm(x, y, octaves = 6) {
 }
 
 // ── palette ─────────────────────────────────────────────────────────
+// Blue-on-black only (design-language: "there is no purple"): the old
+// VIOLET [124,66,196] and MAGENTA [186,84,146] nebula tints are replaced by
+// deep/bright brand blues at matching luminance (≈88 and ≈110 → ≈83 and
+// ≈104), so the sky keeps its light structure without any purple cast.
 const BASE = [4, 7, 20];
-const VIOLET = [124, 66, 196];
-const MAGENTA = [186, 84, 146];
+const BLUE_DEEP = [24, 90, 182]; // #185AB6 (Brand.logoCore)
+const BLUE_BRIGHT = [30, 111, 255]; // #1E6FFF (Brand.blueBright)
 const TEAL = [42, 150, 178];
 const BLUE = [46, 92, 200];
 const AMBER = [232, 132, 74]; // warm dust either side of the credential form
@@ -118,15 +122,15 @@ async function main() {
       // produced a bright purple haze that muddied the whole screen.)
       const T = 0.34;
 
-      // Violet mass through the upper-left third.
-      const violetMask =
+      // Deep-blue mass through the upper-left third.
+      const deepMask =
         clamp01(1.25 - Math.hypot(u - 0.22, (v - 0.16) * 1.5) * 2.2) * clamp01(n1 * 1.5 - 0.35);
-      addTint(px, VIOLET, violetMask * 0.95 * T);
+      addTint(px, BLUE_DEEP, deepMask * 0.95 * T);
 
-      // Magenta veil down the right edge.
-      const magentaMask =
+      // Bright-blue veil down the right edge.
+      const brightMask =
         clamp01(1.15 - Math.hypot(u - 1.02, (v - 0.42) * 1.1) * 2.0) * clamp01(n2 * 1.5 - 0.4);
-      addTint(px, MAGENTA, magentaMask * 0.75 * T);
+      addTint(px, BLUE_BRIGHT, brightMask * 0.75 * T);
 
       // Teal drift across the middle.
       const tealMask = clamp01(1.0 - Math.abs(v - 0.52) * 3.2) * clamp01(n3 * 1.4 - 0.5);
@@ -153,12 +157,12 @@ async function main() {
         clamp01(n3 * 1.6 - 0.24);
       addTint(px, AMBER, (amberL + amberR) * 0.85);
 
-      // Magenta / violet swirl behind the sign-up panel.
+      // Bright/deep blue swirl behind the sign-up panel.
       const swirlMask =
         clamp01(1 - Math.hypot((u - 0.5) * 1.05, (v - UI.signup) * 3.0)) *
         clamp01(n1 * 1.5 - 0.3);
-      addTint(px, MAGENTA, swirlMask * 0.85 * T);
-      addTint(px, VIOLET, swirlMask * 0.5 * T);
+      addTint(px, BLUE_BRIGHT, swirlMask * 0.85 * T);
+      addTint(px, BLUE_DEEP, swirlMask * 0.5 * T);
 
       // ── light structure in the sky ────────────────────────────────
       // Work in width-units so circles stay circular on a 1080×2400 frame.
@@ -182,14 +186,14 @@ async function main() {
       // Mirrored arc on the right shoulder, fainter.
       const arc3D = Math.abs(Math.hypot(u - 1.24, yy - 0.5) - 0.62);
       const arc3 = Math.exp(-((arc3D / 0.026) ** 2));
-      addTint(px, VIOLET, arc3 * 0.3 * clamp01(1.2 - Math.abs(v - 0.34) * 2.2));
+      addTint(px, BLUE_DEEP, arc3 * 0.3 * clamp01(1.2 - Math.abs(v - 0.34) * 2.2));
 
       // Diffuse wisps: elongated, noise-broken bands drifting through the
       // mid-field, so the sky has structure rather than smooth gradients.
       const wisp1 = Math.exp(-(((u * 0.9 + v * 0.5 - 0.95) / 0.05) ** 2)) * clamp01(n2 * 1.7 - 0.35);
       addTint(px, TEAL, wisp1 * 0.55);
       const wisp2 = Math.exp(-(((u * -0.7 + v * 0.9 - 0.1) / 0.06) ** 2)) * clamp01(n3 * 1.7 - 0.4);
-      addTint(px, MAGENTA, wisp2 * 0.5);
+      addTint(px, BLUE_BRIGHT, wisp2 * 0.5);
 
       // Vignette: keep the centre column readable and the frame dark.
       const vig = clamp01(1 - Math.hypot((u - 0.5) * 1.25, (v - 0.42) * 0.95) * 1.15);

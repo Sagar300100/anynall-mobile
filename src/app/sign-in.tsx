@@ -37,6 +37,7 @@ import { useBrandColors } from '@/components/ui/form';
 import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { login, resolveMfaLogin } from '@/lib/api';
 import { GATE_REASON, useReturnAfterAuth, type GatedAction } from '@/lib/auth-gate';
+import { getReducedMotionSync } from '@/lib/motion';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -77,18 +78,24 @@ export default function SignInScreen() {
   const enter = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     let cancelled = false;
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then((reduced) => {
-        if (cancelled) return;
-        if (reduced) return enter.setValue(1);
-        Animated.timing(enter, {
-          toValue: 1,
-          duration: 480,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }).start();
-      })
-      .catch(() => enter.setValue(1));
+    const run = (reduced: boolean) => {
+      if (cancelled) return;
+      if (reduced) return enter.setValue(1);
+      Animated.timing(enter, {
+        toValue: 1,
+        duration: 480,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    };
+    // Cached flag (lib/motion) → the entrance starts on the first frame; the
+    // async query is only the cold-start fallback before the cache seeds.
+    const cached = getReducedMotionSync();
+    if (cached !== null) run(cached);
+    else
+      AccessibilityInfo.isReduceMotionEnabled()
+        .then(run)
+        .catch(() => enter.setValue(1));
     return () => {
       cancelled = true;
     };
@@ -158,7 +165,8 @@ export default function SignInScreen() {
               </View>
 
               <View style={styles.center}>
-                {/* Both lines carry the cyan→lavender gradient, as approved. */}
+                {/* Both lines carry the sky→bright blue gradient (no purple —
+                    blue-on-black only, per the design language). */}
                 <GradientWord size={headingSize}>Welcome</GradientWord>
                 <GradientWord size={headingSize}>back!</GradientWord>
                 <Text style={[styles.sub, { color: c.textSecondary }]}>

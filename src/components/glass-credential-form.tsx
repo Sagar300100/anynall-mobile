@@ -38,8 +38,9 @@ const ROW_H = 44;
 export const PILL_R = 22;
 
 /**
- * Frosted panel with a **lit gradient edge** — the cyan→lavender rim from the
- * reference. Built as a 1.5px gradient underlay showing through around an
+ * Frosted panel with a **lit gradient edge** — a cyan→ice-blue rim (the
+ * reference's lavender tone is off-limits: blue-on-black only). Built as a
+ * 1.5px gradient underlay showing through around an
  * inset blurred core (a plain borderColor can only be one flat colour), plus
  * a soft outer halo so the panel glows against the nebula.
  */

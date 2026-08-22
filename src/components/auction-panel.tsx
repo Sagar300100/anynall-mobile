@@ -4,10 +4,12 @@
 // goes through the HTTP API. The countdown is display-only: when it hits zero
 // any participant calls /finalize and the backend transaction decides.
 //
-// Money is ₹ paise throughout, and the primary action is Any&All cobalt — the
-// reference this layout follows uses yellow, which is not our accent.
+// Money is ₹ paise throughout, and the primary action carries the in-room CTA
+// gradient (135° #1E6FFF→#4DB8FF, navy text — spec §6.6); the reference this
+// layout follows uses yellow, which is not our accent.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -328,6 +330,14 @@ export function AuctionPanel({
               pressed && { opacity: 0.85 },
             ]}
           >
+            {/* In-room CTA fill (spec §6.6): 135° #1E6FFF→#4DB8FF under the
+                existing content — colour change only, layout untouched. */}
+            <LinearGradient
+              colors={['#1E6FFF', '#4DB8FF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
             <Text style={styles.bidText}>
               {/* No "Placing…" state: the optimistic bid has already moved the
                   price and this label to the NEXT increment, so replacing it
@@ -337,8 +347,8 @@ export function AuctionPanel({
             </Text>
             {msLeft > 0 && !blockedReason && (
               <View style={styles.chevrons}>
-                <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
-                <Ionicons name="chevron-forward" size={16} color="#FFFFFF" style={{ marginLeft: -9 }} />
+                <Ionicons name="chevron-forward" size={16} color="#04122B" />
+                <Ionicons name="chevron-forward" size={16} color="#04122B" style={{ marginLeft: -9 }} />
               </View>
             )}
           </Pressable>
@@ -391,6 +401,13 @@ export function AuctionPanel({
               pressed && { opacity: 0.85 },
             ]}
           >
+            {/* Same in-room CTA fill as the main bid button. */}
+            <LinearGradient
+              colors={['#1E6FFF', '#4DB8FF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
             <Text style={styles.bidText}>Place bid</Text>
           </Pressable>
         </View>
@@ -431,7 +448,8 @@ const styles = StyleSheet.create({
   },
   lotTitle: { color: TONE.text, fontSize: 18.5, fontFamily: Fonts.sansSemiBold, lineHeight: 23, ...SHADOW },
   lotMeta: { color: TONE.dim, fontSize: 14, fontFamily: Fonts.sans, ...SHADOW },
-  lotPrice: { color: TONE.text, fontSize: 21, fontFamily: Fonts.sansSemiBold, ...SHADOW },
+  // Prices render in the sky-blue accent (spec §6.6).
+  lotPrice: { color: '#4DB8FF', fontSize: 21, fontFamily: Fonts.sansSemiBold, ...SHADOW },
   clockRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   skull: { fontSize: 13 },
   lotClock: { color: TONE.text, fontSize: 18, fontFamily: Fonts.mono, letterSpacing: 0.5, ...SHADOW },
@@ -466,11 +484,14 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 56,
     borderRadius: 999,
-    backgroundColor: TONE.primary,
+    // Fill is the in-room CTA gradient rendered inside (spec §6.6); overflow
+    // hidden clips it to the pill.
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bidText: { color: '#FFFFFF', fontSize: 18, fontFamily: Fonts.sansSemiBold },
+  // Navy on the bright gradient (spec §6.6) — white failed contrast on #4DB8FF.
+  bidText: { color: '#04122B', fontSize: 18, fontFamily: Fonts.sansSemiBold },
   chevrons: { flexDirection: 'row', alignItems: 'center', marginLeft: -2 },
 
   soldRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingBottom: Spacing.one },

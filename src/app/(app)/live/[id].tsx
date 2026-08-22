@@ -1489,7 +1489,13 @@ function rupeesToPaise(rupees: string): number | null {
 function ShopRowPrice({ product }: { product: ProductDoc }) {
   const flash = useFlashSale(product);
   if (!flash) {
-    return <Text style={styles.railRowBody}>{formatPaise(product.price || 0)}</Text>;
+    // Prices render in the sky-blue accent (spec §6.6) — colour override
+    // only; the struck-through list price below stays dimmed on purpose.
+    return (
+      <Text style={[styles.railRowBody, { color: '#4DB8FF' }]}>
+        {formatPaise(product.price || 0)}
+      </Text>
+    );
   }
   return (
     <View style={styles.flashRow}>

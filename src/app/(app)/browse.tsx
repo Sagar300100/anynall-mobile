@@ -5,8 +5,8 @@
 // Accepts a `cat` param so Home's category chips land here pre-filtered.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
@@ -26,11 +26,22 @@ import { ShowCard } from '@/components/show-card';
 import { useBrandColors } from '@/components/ui/form';
 import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { useShows } from '@/hooks/use-shows';
+import { useIsGuest } from '@/lib/auth-gate';
 import { searchUsers, type PublicProfile } from '@/lib/users';
 
 export default function ExploreScreen() {
   const c = useBrandColors();
   const { shows, refreshing, refresh } = useShows();
+  // Search is a gated surface (spec §6.2). Tab presses are swallowed by the
+  // layout's guest listener, but a deep link (or programmatic push) lands
+  // here directly — bounce guests to sign-in on focus. useIsGuest is false
+  // while the session is still RESTORING, so members never flash through.
+  const isGuest = useIsGuest();
+  useFocusEffect(
+    useCallback(() => {
+      if (isGuest) router.replace({ pathname: '/sign-in', params: { reason: 'search' } });
+    }, [isGuest])
+  );
   const { cat } = useLocalSearchParams<{ cat?: string }>();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(null);
@@ -101,13 +112,20 @@ export default function ExploreScreen() {
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
               placeholder="Shows, sellers, categories…"
-              placeholderTextColor={Brand.mistFaint}
+              // mistSoft, matching home's search pill placeholder — the
+              // hint must be readable, and 40% white wasn't.
+              placeholderTextColor={Brand.mistSoft}
               style={[styles.searchInput, { color: c.text }]}
               autoCapitalize="none"
               returnKeyType="search"
             />
             {query.length > 0 && (
-              <PressScale onPress={() => setQuery('')} hitSlop={8}>
+              <PressScale
+                onPress={() => setQuery('')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
                 <Ionicons name="close-circle" size={16} color={Brand.slate400} />
               </PressScale>
             )}
@@ -122,6 +140,9 @@ export default function ExploreScreen() {
                     <PressScale
                       key={catName}
                       onPress={() => setCategory(active ? null : catName)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Filter by ${catName}`}
+                      accessibilityState={{ selected: active }}
                       style={[
                         styles.chip,
                         {

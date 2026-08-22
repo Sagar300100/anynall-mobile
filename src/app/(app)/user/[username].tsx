@@ -384,7 +384,8 @@ export default function PublicProfileScreen() {
                     {people === null ? (
                       <ActivityIndicator color={Brand.blueSky} style={styles.peopleLoading} />
                     ) : people.length === 0 ? (
-                      <Text style={[styles.body, { color: Brand.mistFaint }]}>
+                      // mistSoft: this is a sentence to READ, not decoration.
+                      <Text style={[styles.body, { color: Brand.mistSoft }]}>
                         {peopleTab === 'followers' ? 'No followers yet.' : 'Not following anyone yet.'}
                       </Text>
                     ) : (
@@ -429,7 +430,8 @@ export default function PublicProfileScreen() {
                 <FadeUp index={2}>
                   <GlassCard style={styles.card}>
                     <Text style={[styles.cardTitle, { color: c.text }]}>About</Text>
-                    <Text style={[styles.body, { color: profile.bio ? Brand.mist : Brand.mistFaint }]}>
+                    {/* Fallback copy is still READING text → mistSoft, not faint. */}
+                    <Text style={[styles.body, { color: profile.bio ? Brand.mist : Brand.mistSoft }]}>
                       {profile.bio ||
                         (isOwner
                           ? 'This is your bio. Add a few lines about yourself on anynall.com so others can know you better.'

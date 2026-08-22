@@ -135,6 +135,14 @@ const GlobeSpin = memo(function GlobeSpin({ size }: { size: number }) {
       ])
     );
     const startAll = () => {
+      // A restarted native-driver timing re-captures its fromValue at the
+      // CURRENT (paused) position, so without a reset each resume shrinks the
+      // sweep toward a frozen globe. The globe is rotationally uniform dots,
+      // so snapping back to 0 before restarting is invisible. The breathe
+      // sequence needs no reset: each cycle re-targets 1 then 0, so it
+      // self-corrects from wherever it paused.
+      spinLoop.stop();
+      spin.setValue(0);
       spinLoop.start();
       breatheLoop.start();
     };
@@ -143,6 +151,9 @@ const GlobeSpin = memo(function GlobeSpin({ size }: { size: number }) {
       breatheLoop.stop();
     };
     startAll();
+    // Stopping on ANY non-active state includes iOS's transient 'inactive'
+    // (notification shade, app switcher): the flicker is just a pause, and
+    // the reset in startAll() makes every restart clean.
     const sub = AppState.addEventListener('change', (s) =>
       s === 'active' ? startAll() : stopAll()
     );

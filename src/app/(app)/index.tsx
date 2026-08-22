@@ -49,7 +49,7 @@ import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
 import { useShows } from '@/hooks/use-shows';
 import { useAuthGate, useIsGuest } from '@/lib/auth-gate';
-import { dur, ease, stagger } from '@/lib/motion';
+import { dur, ease, getReducedMotionSync, stagger } from '@/lib/motion';
 import { getOnboardingState } from '@/lib/onboarding';
 import { useSession } from '@/lib/session';
 import { markShowTapped } from '@/lib/stream';
@@ -118,23 +118,43 @@ const StandUp = memo(function StandUp({
   // Lazy state, not a ref — stable identity, clean under react-hooks/refs.
   const [progress] = useState(() => new Animated.Value(0));
   const [delayMs] = useState(() => Math.min(index, stagger.tilesCap) * stagger.tiles);
+  // Android: rasterize the tile to a hardware texture while the perspective
+  // transform runs, then release it — a resident texture after the entrance
+  // would cost memory and soften the tile's text for no benefit.
+  const [animating, setAnimating] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then((reduced) => {
-        if (cancelled) return;
-        if (reduced) return progress.setValue(1);
-        Animated.timing(progress, {
-          toValue: 1,
-          duration: dur.standUp,
-          delay: delayMs,
-          easing: ease.settle,
-          useNativeDriver: true,
-        }).start();
-      })
-      // Query failed → land at rest, never hide content.
-      .catch(() => progress.setValue(1));
+    const settle = () => {
+      if (!cancelled) setAnimating(false);
+    };
+    const run = (reduced: boolean) => {
+      if (cancelled) return;
+      if (reduced) {
+        progress.setValue(1);
+        settle();
+        return;
+      }
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: dur.standUp,
+        delay: delayMs,
+        easing: ease.settle,
+        useNativeDriver: true,
+      }).start(settle);
+    };
+    // Cached flag (lib/motion) → the stand-up starts on the first frame; the
+    // async query is only the cold-start fallback before the cache seeds.
+    const cached = getReducedMotionSync();
+    if (cached !== null) run(cached);
+    else
+      AccessibilityInfo.isReduceMotionEnabled()
+        .then(run)
+        // Query failed → land at rest, never hide content.
+        .catch(() => {
+          progress.setValue(1);
+          settle();
+        });
     return () => {
       cancelled = true;
     };
@@ -142,6 +162,7 @@ const StandUp = memo(function StandUp({
 
   return (
     <Animated.View
+      renderToHardwareTextureAndroid={animating}
       style={[
         style,
         {
@@ -497,7 +518,9 @@ export default function LiveScreen() {
                       <PressScale
                         key={String(s.id)}
                         onPress={() =>
-                          requireAuth('remind', () =>
+                          // 'watch', not 'remind' — the row opens the show
+                          // page, it doesn't set a reminder.
+                          requireAuth('watch', () =>
                             router.push({ pathname: '/show/[id]', params: { id: String(s.id) } })
                           )
                         }
@@ -813,7 +836,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   guestNote: {
-    color: Brand.mistFaint,
+    // mistSoft, not mistFaint — this is a sentence the guest must READ, and
+    // 40% white fails contrast at 12px; faint stays reserved for decoration.
+    color: Brand.mistSoft,
     fontSize: 12,
     fontFamily: Fonts.ui,
     textAlign: 'center',

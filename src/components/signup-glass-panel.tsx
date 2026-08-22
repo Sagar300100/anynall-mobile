@@ -23,14 +23,16 @@ export function SignupGlassPanel({ onPress }: { onPress: () => void }) {
       style={({ pressed }) => [styles.wrap, { opacity: pressed ? 0.85 : 1 }]}
     >
       {/* Avatar disc overlapping the panel's top edge: a dark translucent
-          circle with a lavender ring and a small "+" badge, per the close-up
-          reference — not a solid gradient blob. */}
+          circle with an ice-blue ring and a small "+" badge, per the close-up
+          reference — not a solid gradient blob. (Blue-on-black only: the
+          old lavender ring/icon hexes are swapped for blues at the same
+          luminance.) */}
       <View style={styles.discWrap}>
-        <View style={[styles.disc, { borderColor: 'rgba(190,170,255,0.85)' }]}>
-          <Ionicons name="person-outline" size={22} color="#C9BFFF" />
+        <View style={[styles.disc, { borderColor: 'rgba(150,195,255,0.85)' }]}>
+          <Ionicons name="person-outline" size={22} color="#A6CFFF" />
         </View>
-        <View style={[styles.plus, { borderColor: 'rgba(190,170,255,0.85)' }]}>
-          <Ionicons name="add" size={12} color="#E4DDFF" />
+        <View style={[styles.plus, { borderColor: 'rgba(150,195,255,0.85)' }]}>
+          <Ionicons name="add" size={12} color="#DCEBFF" />
         </View>
       </View>
 
@@ -38,10 +40,12 @@ export function SignupGlassPanel({ onPress }: { onPress: () => void }) {
         {/* Faint curved-line texture */}
         <Svg width="100%" height={54} style={StyleSheet.absoluteFill} pointerEvents="none">
           <Defs>
+            {/* Blue-family streak ramp (was violet/lavender) — same alphas,
+                matched luminance, ending on the brand sky blue. */}
             <SvgLinearGradient id="curve" x1="0" y1="1" x2="1" y2="0">
-              <Stop offset="0" stopColor="#8B5CF6" stopOpacity="0" />
-              <Stop offset="0.35" stopColor="#C4B5FD" stopOpacity="0.42" />
-              <Stop offset="0.65" stopColor="#A78BFA" stopOpacity="0.38" />
+              <Stop offset="0" stopColor="#1E6FFF" stopOpacity="0" />
+              <Stop offset="0.35" stopColor="#9CC8FF" stopOpacity="0.42" />
+              <Stop offset="0.65" stopColor="#6BB6FF" stopOpacity="0.38" />
               <Stop offset="1" stopColor="#4DB8FF" stopOpacity="0" />
             </SvgLinearGradient>
           </Defs>
@@ -78,7 +82,7 @@ export function SignupGlassPanel({ onPress }: { onPress: () => void }) {
 
         {/* Small sparkle accent, lower-right — as in the reference */}
         <View style={styles.sparkle} pointerEvents="none">
-          <Ionicons name="sparkles" size={14} color="rgba(196,181,253,0.75)" />
+          <Ionicons name="sparkles" size={14} color="rgba(156,200,255,0.75)" />
         </View>
       </GlassPanel>
     </Pressable>

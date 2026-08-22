@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
-import { useIsGuest, type GatedAction } from '@/lib/auth-gate';
+import { useAuthStatus, type GatedAction } from '@/lib/auth-gate';
 
 /**
  * Guest flow (design-language §6.2): a signed-out user may only browse the
@@ -38,9 +38,10 @@ export default function AppTabsLayout() {
   // of Android's 3-button navigation and the iOS home indicator alike.
   const insets = useSafeAreaInsets();
   const barHeight = 58 + insets.bottom;
-  // True only once the session has RESOLVED to signed-out — a tab press
-  // during Firebase's async restore is never mis-gated.
-  const isGuest = useIsGuest();
+  // Three-state session: 'loading' while Firebase restores, then 'member' or
+  // 'guest'. The listener needs all three — a press during restore must be
+  // swallowed WITHOUT routing to sign-in (see below).
+  const authStatus = useAuthStatus();
 
   return (
     <Tabs
@@ -88,10 +89,18 @@ export default function AppTabsLayout() {
       screenListeners={({ route }) => ({
         tabPress: (e) => {
           Haptics.selectionAsync().catch(() => {});
+          if (route.name === 'index') return;
+          // During session RESTORE the outcome is unknown: swallow the press
+          // (no member-only tab may flash through) but do NOT push sign-in —
+          // a member mid-restore must not see the auth screen for a beat.
+          if (authStatus === 'loading') {
+            e.preventDefault();
+            return;
+          }
           // Guests may only browse home (Live). Any other TAB press is
           // swallowed and routed to sign-in with its reason. Pushed screens
           // (href: null) have no tab button, so they never fire tabPress.
-          if (isGuest && route.name !== 'index') {
+          if (authStatus === 'guest') {
             e.preventDefault();
             const reason = GUEST_TAB_REASONS[route.name];
             router.push(

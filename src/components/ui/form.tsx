@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two + 2,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 8, // auth inputs are radius 8 (design-language §3)
     paddingHorizontal: Spacing.three,
   },
   focusRing: {
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
     left: -3,
     right: -3,
     bottom: -3,
-    borderRadius: 13,
+    borderRadius: 11, // input radius 8 + the 3px halo offset
     borderWidth: 2,
     borderColor: Brand.authFocusRing,
   },

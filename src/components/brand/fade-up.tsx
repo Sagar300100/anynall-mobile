@@ -16,7 +16,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { dur, ease, stagger } from '@/lib/motion';
+import { dur, ease, getReducedMotionSync, stagger } from '@/lib/motion';
 
 export function FadeUp({
   index = 0,
@@ -40,20 +40,26 @@ export function FadeUp({
 
   useEffect(() => {
     let cancelled = false;
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then((reduced) => {
-        if (cancelled) return;
-        if (reduced) return progress.setValue(1);
-        Animated.timing(progress, {
-          toValue: 1,
-          duration: dur.fadeUp,
-          delay: delayMs,
-          easing: ease.reveal,
-          useNativeDriver: true,
-        }).start();
-      })
-      // Query failed → land at rest, never hide content.
-      .catch(() => progress.setValue(1));
+    const run = (reduced: boolean) => {
+      if (cancelled) return;
+      if (reduced) return progress.setValue(1);
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: dur.fadeUp,
+        delay: delayMs,
+        easing: ease.reveal,
+        useNativeDriver: true,
+      }).start();
+    };
+    // Cached flag (lib/motion) → the entrance starts on the first frame; the
+    // async query is only the cold-start fallback before the cache seeds.
+    const cached = getReducedMotionSync();
+    if (cached !== null) run(cached);
+    else
+      AccessibilityInfo.isReduceMotionEnabled()
+        .then(run)
+        // Query failed → land at rest, never hide content.
+        .catch(() => progress.setValue(1));
     return () => {
       cancelled = true;
     };

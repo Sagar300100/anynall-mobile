@@ -25,7 +25,7 @@ import { RoomEvent, Track } from 'livekit-client';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Fonts } from '@/constants/theme';
+import { Brand, Fonts } from '@/constants/theme';
 import type { ShowData } from '@/lib/api';
 import {
   adoptJoin,
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(74,143,229,0.2)',
-    backgroundColor: '#0A1428',
+    backgroundColor: Brand.ink800,
     overflow: 'hidden',
   },
   fallback: { ...(StyleSheet.absoluteFill as object), alignItems: 'center', justifyContent: 'center' },
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#E5484D',
+    backgroundColor: Brand.live,
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 4,

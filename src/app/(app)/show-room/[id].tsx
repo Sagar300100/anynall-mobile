@@ -973,7 +973,8 @@ const styles = StyleSheet.create({
   lotTitle: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.sansSemiBold },
   lotWho: { color: 'rgba(159,180,216,0.9)', fontSize: 12.5, fontFamily: Fonts.sans },
   lotWhoName: { color: '#4DB8FF', fontFamily: Fonts.sansSemiBold },
-  lotPrice: { color: '#FFFFFF', fontSize: 18, fontFamily: Fonts.sansSemiBold },
+  // Prices render in the sky-blue accent (spec §6.6).
+  lotPrice: { color: '#4DB8FF', fontSize: 18, fontFamily: Fonts.sansSemiBold },
   lotClock: { color: 'rgba(159,180,216,0.9)', fontSize: 13, fontFamily: Fonts.mono },
   lotClockHot: { color: '#FF6B6B' },
 
@@ -1145,5 +1146,6 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   productTitle: { flex: 1, color: '#FFFFFF', fontSize: 14, fontFamily: Fonts.sans },
-  productPrice: { color: '#FFFFFF', fontSize: 14, fontFamily: Fonts.sansSemiBold },
+  // Prices render in the sky-blue accent (spec §6.6).
+  productPrice: { color: '#4DB8FF', fontSize: 14, fontFamily: Fonts.sansSemiBold },
 });

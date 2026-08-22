@@ -224,6 +224,8 @@ export default function InboxScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Accept follow request from ${p.name}`}
                         accessibilityState={{ disabled: requestBusy !== null }}
+                        // 34pt pill + 5pt slop each side = the 44pt target.
+                        hitSlop={{ top: 5, bottom: 5 }}
                         style={[styles.requestBtn, requestBusy === p.uid && { opacity: 0.7 }]}
                       >
                         <LinearGradient
@@ -245,6 +247,8 @@ export default function InboxScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Decline follow request from ${p.name}`}
                         accessibilityState={{ disabled: requestBusy !== null }}
+                        // 34pt pill + 5pt slop each side = the 44pt target.
+                        hitSlop={{ top: 5, bottom: 5 }}
                         style={[
                           styles.requestBtn,
                           styles.requestBtnGhost,
@@ -409,5 +413,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 5,
   },
-  badgeText: { color: '#04122B', fontSize: 11, fontFamily: Fonts.uiBold },
+  badgeText: { color: Brand.navyText, fontSize: 11, fontFamily: Fonts.uiBold },
 });

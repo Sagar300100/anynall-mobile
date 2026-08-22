@@ -51,6 +51,32 @@ export const loop = {
   orbit: 70000,
 } as const;
 
+// ── Reduce-motion cache ──────────────────────────────────────────────────────
+//
+// ONE async query + ONE subscription for the whole app, seeded at module load.
+// Entrance components (FadeUp, StandUp, the sign-in entrance) read this cache
+// synchronously on mount so their animation starts on the very first frame —
+// without it, every mount paid its own AccessibilityInfo round trip before
+// anything moved. `null` only until the first query resolves (i.e. the first
+// few ms of a cold start); callers fall back to the async query then.
+let reducedMotionCache: boolean | null = null;
+
+AccessibilityInfo.isReduceMotionEnabled()
+  .then((v) => {
+    // A change event may have landed first — never overwrite fresher data.
+    if (reducedMotionCache === null) reducedMotionCache = v;
+  })
+  .catch(() => {});
+AccessibilityInfo.addEventListener('reduceMotionChanged', (v) => {
+  reducedMotionCache = v;
+});
+
+/** Cached reduce-motion flag: `boolean` once known, `null` before the first
+ *  system query resolves. Kept fresh by the module-level subscription. */
+export function getReducedMotionSync(): boolean | null {
+  return reducedMotionCache;
+}
+
 /**
  * Live reduce-motion flag (the cosmic-background idiom): seeds from the
  * async system query, then tracks changes via subscription. Starts `false`
