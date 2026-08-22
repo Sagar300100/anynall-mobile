@@ -66,3 +66,4 @@ docs/
 
 # env template stays local-only (owner preference)
 .env.example
+*.log
