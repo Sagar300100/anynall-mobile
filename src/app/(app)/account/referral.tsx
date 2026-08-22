@@ -7,11 +7,11 @@
 // seller hub panel this ports. There is no invite-tracking backend yet, so no
 // counters are shown — a genuine link and a share sheet, nothing invented.
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   Share,
   StyleSheet,
@@ -20,9 +20,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { GlassCard } from '@/components/brand/glass-card';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, CtaGradientShell, Fonts, Shadows, Spacing } from '@/constants/theme';
 import { getMyReferral } from '@/lib/api';
 import { useAuthStatus } from '@/lib/auth-gate';
 
@@ -77,17 +81,19 @@ export default function ReferralScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/profile'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Refer friends</Text>
       </View>
 
@@ -113,12 +119,12 @@ export default function ReferralScreen() {
             <Text style={[styles.body, { color: c.danger }]}>{error}</Text>
           ) : (
             <>
-              <View style={[styles.codeCard, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+              <GlassCard variant="panel" style={styles.codeCard}>
                 <Text style={[styles.codeLabel, { color: c.textFaint }]}>YOUR CODE</Text>
                 <Text
                   selectable
                   accessibilityLabel={`Referral code ${code}`}
-                  style={[styles.code, { color: c.text }]}
+                  style={styles.code}
                 >
                   {code}
                 </Text>
@@ -128,35 +134,39 @@ export default function ReferralScreen() {
                 <Text style={[styles.hint, { color: c.textFaint }]}>
                   Long-press the code or link to copy it.
                 </Text>
-              </View>
+              </GlassCard>
 
-              <Pressable
+              <PressScale
                 onPress={share}
                 disabled={sharing || !link}
                 accessibilityRole="button"
                 accessibilityLabel="Share your referral link"
-                style={({ pressed }) => [
-                  styles.shareBtn,
-                  { backgroundColor: c.cta, opacity: pressed || sharing ? 0.8 : 1 },
-                ]}
+                style={[styles.shareBtn, Shadows.cta, sharing && { opacity: 0.8 }]}
               >
-                {sharing ? (
-                  <ActivityIndicator size="small" color={c.ctaText} />
-                ) : (
-                  <>
-                    <Ionicons name="share-social-outline" size={17} color={c.ctaText} />
-                    <Text style={[styles.shareBtnText, { color: c.ctaText }]}>Share your link</Text>
-                  </>
-                )}
-              </Pressable>
+                <LinearGradient
+                  colors={[...CtaGradientShell]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.shareBtnFill}
+                >
+                  {sharing ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="share-social-outline" size={17} color="#FFFFFF" />
+                      <Text style={[styles.shareBtnText, { color: '#FFFFFF' }]}>Share your link</Text>
+                    </>
+                  )}
+                </LinearGradient>
+              </PressScale>
 
-              <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>HOW IT WORKS</Text>
-              <View style={[styles.steps, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+              <Eyebrow style={styles.sectionLabel}>How it works</Eyebrow>
+              <View style={styles.steps}>
                 {STEPS.map((s, i) => (
                   <View key={s.icon}>
-                    {i > 0 && <View style={[styles.divider, { backgroundColor: c.border }]} />}
+                    {i > 0 && <View style={[styles.divider, { backgroundColor: Brand.hairlineWhite }]} />}
                     <View style={styles.stepRow}>
-                      <View style={[styles.stepIcon, { backgroundColor: 'rgba(46,107,255,0.14)' }]}>
+                      <View style={[styles.stepIcon, { backgroundColor: 'rgba(30,111,255,0.14)' }]}>
                         <Ionicons name={s.icon as never} size={16} color={c.primary} />
                       </View>
                       <Text style={[styles.stepText, { color: c.textSecondary }]}>{s.text}</Text>
@@ -174,11 +184,13 @@ export default function ReferralScreen() {
           )}
         </ScrollView>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -189,41 +201,41 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.three, paddingBottom: Spacing.six },
-  body: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 21 },
+  body: { fontSize: 14, fontFamily: Fonts.ui, lineHeight: 21 },
   loading: { paddingVertical: Spacing.five, alignItems: 'center' },
 
   codeCard: {
-    borderWidth: 1,
-    borderRadius: 16,
     padding: Spacing.four,
     alignItems: 'center',
     gap: Spacing.two,
   },
   codeLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 2 },
-  code: { fontFamily: Fonts.mono, fontSize: 26, letterSpacing: 3 },
-  link: { fontSize: 12.5, fontFamily: Fonts.sans, textAlign: 'center' },
-  hint: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 17, textAlign: 'center' },
+  code: { fontFamily: Fonts.mono, fontSize: 26, letterSpacing: 3, color: Brand.blueSky },
+  link: { fontSize: 12.5, fontFamily: Fonts.ui, textAlign: 'center' },
+  hint: { fontSize: 12, fontFamily: Fonts.ui, lineHeight: 17, textAlign: 'center' },
 
-  shareBtn: {
+  shareBtn: { borderRadius: 13 },
+  shareBtnFill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.two,
-    borderRadius: 999,
+    borderRadius: 13,
     minHeight: 48,
+    overflow: 'hidden',
   },
-  shareBtnText: { fontSize: 14.5, fontFamily: Fonts.sansMedium },
+  shareBtnText: { fontSize: 14.5, fontFamily: Fonts.uiBold },
 
-  sectionLabel: {
-    fontSize: 11.5,
-    fontFamily: Fonts.sansMedium,
-    letterSpacing: 1.1,
-    marginLeft: 4,
-    marginBottom: -Spacing.two,
+  sectionLabel: { marginLeft: 4, marginBottom: -Spacing.two },
+  steps: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    paddingHorizontal: Spacing.three,
   },
-  steps: { borderWidth: 1, borderRadius: 16, paddingHorizontal: Spacing.three },
   divider: { height: StyleSheet.hairlineWidth },
   stepRow: {
     flexDirection: 'row',
@@ -238,5 +250,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepText: { flex: 1, fontSize: 13.5, fontFamily: Fonts.sans, lineHeight: 19 },
+  stepText: { flex: 1, fontSize: 13.5, fontFamily: Fonts.ui, lineHeight: 19 },
 });

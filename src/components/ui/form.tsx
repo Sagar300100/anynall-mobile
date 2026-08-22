@@ -14,18 +14,19 @@ import {
   type TextStyle,
 } from 'react-native';
 
-import { Colors, Fonts, Spacing } from '@/constants/theme';
+import { Brand, Colors, Fonts, Spacing } from '@/constants/theme';
 
 // Site is dark-only navy; hook kept so screens don't care.
 export function useBrandColors() {
   return Colors.dark;
 }
 
-/** Mono uppercase letter-spaced label — the site's .eyebrow. */
+/** Mono uppercase letter-spaced label — the site's .eyebrow (blueGlow, per
+ *  design-language §2). New screens prefer components/brand/eyebrow, which
+ *  adds the live pulse dot. */
 export function Eyebrow({ children, style }: { children: string; style?: TextStyle }) {
-  const c = useBrandColors();
   return (
-    <Text style={[styles.eyebrow, { color: c.primary }, style]}>
+    <Text style={[styles.eyebrow, { color: Brand.blueGlow }, style]}>
       {children.toUpperCase()}
     </Text>
   );
@@ -93,7 +94,7 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
 ) {
   const c = useBrandColors();
   const [focused, setFocused] = useState(false);
-  const borderColor = error ? c.danger : focused ? c.primary : c.border;
+  const borderColor = error ? c.danger : focused ? Brand.authAccent : c.border;
 
   return (
     <View style={styles.fieldWrap}>
@@ -104,8 +105,15 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
           { backgroundColor: c.backgroundElement, borderColor },
         ]}
       >
+        {/* Focus ring (design-language §6.4): a 2px translucent halo just
+            outside the border — decoration only, never part of layout. */}
+        {focused && !error && <View pointerEvents="none" style={styles.focusRing} />}
         {leftIcon && (
-          <Ionicons name={leftIcon} size={18} color={focused ? c.primary : c.textSecondary} />
+          <Ionicons
+            name={leftIcon}
+            size={18}
+            color={focused ? Brand.authAccent : c.textSecondary}
+          />
         )}
         <TextInput
           ref={ref}
@@ -201,7 +209,13 @@ const styles = StyleSheet.create({
     letterSpacing: 2.4,
   },
   fieldWrap: { gap: Spacing.one + 2, alignSelf: 'stretch' },
-  label: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  // Geist-style mono field label (design-language §6.4).
+  label: {
+    fontSize: 11,
+    fontFamily: Fonts.mono,
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+  },
   error: { fontSize: 13, fontFamily: Fonts.sans },
   inputRow: {
     flexDirection: 'row',
@@ -210,6 +224,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: Spacing.three,
+  },
+  focusRing: {
+    position: 'absolute',
+    top: -3,
+    left: -3,
+    right: -3,
+    bottom: -3,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: Brand.authFocusRing,
   },
   inputInner: {
     flex: 1,

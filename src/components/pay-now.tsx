@@ -9,12 +9,14 @@
 // the normal server-verified flow (it calls /api/payments/verify itself on
 // the success payload — the client never decides whether a payment worked).
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import { PressScale } from '@/components/brand/press-scale';
 import { RazorpayCheckout, type CheckoutOrder } from '@/components/razorpay-checkout';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { CtaGradientShell, Fonts, Shadows, Spacing } from '@/constants/theme';
 import type { BuyerOrder } from '@/lib/api';
 import { formatPaise, getPaymentsConfig } from '@/lib/commerce';
 import { auth } from '@/lib/firebase';
@@ -109,27 +111,31 @@ export function PayNowButton({
   return (
     <View style={styles.wrap}>
       {!expired ? (
-        <Pressable
+        <PressScale
           onPress={payNow}
           disabled={busy}
           accessibilityRole="button"
           accessibilityLabel={`Pay ${formatPaise(order.amount)} for this order now`}
-          style={({ pressed }) => [
-            styles.btn,
-            { backgroundColor: c.cta, opacity: pressed || busy ? 0.75 : 1 },
-          ]}
+          style={[styles.btn, Shadows.cta, busy && { opacity: 0.75 }]}
         >
-          {busy ? (
-            <ActivityIndicator size="small" color={c.ctaText} />
-          ) : (
-            <>
-              <Ionicons name="card-outline" size={15} color={c.ctaText} />
-              <Text style={[styles.btnText, { color: c.ctaText }]}>
-                Pay {formatPaise(order.amount)} · {formatPayLeft(msLeft)} left
-              </Text>
-            </>
-          )}
-        </Pressable>
+          <LinearGradient
+            colors={[...CtaGradientShell]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.btnFill}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="card-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.btnText}>
+                  Pay {formatPaise(order.amount)} · {formatPayLeft(msLeft)} left
+                </Text>
+              </>
+            )}
+          </LinearGradient>
+        </PressScale>
       ) : (
         <Text style={[styles.expiredText, { color: c.textFaint }]}>
           The payment window for this order has ended.
@@ -159,16 +165,18 @@ export function PayNowButton({
 
 const styles = StyleSheet.create({
   wrap: { gap: Spacing.two },
-  btn: {
+  btn: { borderRadius: 13 },
+  btnFill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.two,
-    borderRadius: 999,
+    borderRadius: 13,
     minHeight: 44,
     paddingHorizontal: Spacing.three,
+    overflow: 'hidden',
   },
-  btnText: { fontSize: 13.5, fontFamily: Fonts.sansSemiBold },
-  expiredText: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
-  errText: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  btnText: { fontSize: 13.5, fontFamily: Fonts.uiBold, color: '#FFFFFF' },
+  expiredText: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
+  errText: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
 });

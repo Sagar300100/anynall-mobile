@@ -5,23 +5,27 @@
 // focus, no realtime listener needed.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { FadeUp } from '@/components/brand/fade-up';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
 import { DisplayText, useBrandColors } from '@/components/ui/form';
 import { useAuthStatus } from '@/lib/auth-gate';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, CtaGradientShell, Fonts, Spacing } from '@/constants/theme';
 import { subscribeMyConversations, type ConversationView } from '@/lib/conversations';
 import {
   acceptFollowRequest,
@@ -109,206 +113,212 @@ export default function InboxScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={styles.header}>
-        <DisplayText size={28}>Messages</DisplayText>
-        <View style={styles.headerSpacer} />
-        {/* People search — find someone to message (audit: the app had no way
-            to find a person; profiles were only reachable from shows/chats). */}
-        <Pressable
-          onPress={() => router.push('/people-search')}
-          accessibilityRole="button"
-          accessibilityLabel="Find people"
-          hitSlop={8}
-          style={({ pressed }) => [
-            styles.searchBtn,
-            { borderColor: c.border, opacity: pressed ? 0.7 : 1 },
-          ]}
-        >
-          <Ionicons name="search-outline" size={18} color={c.textSecondary} />
-        </Pressable>
-      </View>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <FadeUp index={0} style={styles.header}>
+          <View style={styles.headerTitle}>
+            <Eyebrow>Inbox</Eyebrow>
+            <DisplayText size={28}>Messages</DisplayText>
+          </View>
+          <View style={styles.headerSpacer} />
+          {/* People search — find someone to message (audit: the app had no way
+              to find a person; profiles were only reachable from shows/chats). */}
+          <PressScale
+            onPress={() => router.push('/people-search')}
+            accessibilityRole="button"
+            accessibilityLabel="Find people"
+            hitSlop={8}
+            style={styles.searchBtn}
+          >
+            <Ionicons name="search-outline" size={18} color={Brand.slate400} />
+          </PressScale>
+        </FadeUp>
 
-      {status === 'loading' ? (
-        // Session restoring — neither guest copy nor an empty member inbox yet.
-        <View style={styles.center} />
-      ) : status === 'guest' ? (
-        <GuestPrompt
-          icon="chatbubble-outline"
-          title="Your messages live here"
-          body="Once you’re signed in, this is where sellers reach you about the things you’re buying."
-          points={[
-            'Messages from sellers you’ve bought from',
-            'Updates on orders you’ve placed',
-            'Reminders for shows you’re waiting on',
-          ]}
-          reason="inbox"
-        />
-      ) : error ? (
-        <View style={styles.center}>
-          <Ionicons name="cloud-offline-outline" size={44} color={c.textSecondary} />
-          <Text style={[styles.emptyTitle, { color: c.text }]}>Couldn’t load messages</Text>
-          <Text style={[styles.emptyText, { color: c.textSecondary }]}>{error}</Text>
-        </View>
-      ) : loaded && convos.length === 0 && requests.length === 0 ? (
-        <View style={styles.center}>
-          <Ionicons name="chatbubble-ellipses-outline" size={44} color={c.primary} />
-          <Text style={[styles.emptyTitle, { color: c.text }]}>No conversations yet</Text>
-          <Text style={[styles.emptyText, { color: c.textSecondary }]}>
-            Message a seller from any show page and it’ll appear here.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={convos}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          ListHeaderComponent={
-            requests.length === 0 ? null : (
-              /* Follow requests — the web Messages page's "Requests" tab. */
-              <View>
-                <Text style={[styles.requestsLabel, { color: c.textSecondary }]}>
-                  FOLLOW REQUESTS ({requests.length})
-                </Text>
-                {requests.map((p) => (
-                  <View key={p.uid} style={[styles.row, { borderColor: c.border }]}>
-                    <Pressable
-                      onPress={() =>
-                        router.push({
-                          pathname: '/user/[username]',
-                          params: { username: p.username || p.uid, uid: p.uid },
-                        })
-                      }
-                      accessibilityRole="button"
-                      accessibilityLabel={`View ${p.name}'s profile`}
-                      style={({ pressed }) => [styles.requestPerson, pressed && { opacity: 0.7 }]}
-                    >
-                      {p.photoURL ? (
-                        <Image
-                          source={{ uri: p.photoURL }}
-                          style={styles.requestAvatar}
-                          contentFit="cover"
-                        />
-                      ) : (
-                        <View
-                          style={[styles.requestAvatar, { backgroundColor: c.backgroundSelected }]}
-                        >
-                          <Text style={[styles.avatarText, { color: c.primary }]}>
-                            {p.name.slice(0, 2).toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <Text numberOfLines={1} style={[styles.name, { color: c.text }]}>
-                          {p.name}
-                        </Text>
-                        {!!p.username && (
-                          <Text
-                            numberOfLines={1}
-                            style={[styles.requestHandle, { color: c.textFaint }]}
+        {status === 'loading' ? (
+          // Session restoring — neither guest copy nor an empty member inbox yet.
+          <View style={styles.center} />
+        ) : status === 'guest' ? (
+          <GuestPrompt
+            icon="chatbubble-outline"
+            title="Your messages live here"
+            body="Once you’re signed in, this is where sellers reach you about the things you’re buying."
+            points={[
+              'Messages from sellers you’ve bought from',
+              'Updates on orders you’ve placed',
+              'Reminders for shows you’re waiting on',
+            ]}
+            reason="inbox"
+          />
+        ) : error ? (
+          <View style={styles.center}>
+            <Ionicons name="cloud-offline-outline" size={44} color={Brand.slate400} />
+            <Text style={[styles.emptyTitle, { color: c.text }]}>Couldn’t load messages</Text>
+            <Text style={[styles.emptyText, { color: Brand.slate400 }]}>{error}</Text>
+          </View>
+        ) : loaded && convos.length === 0 && requests.length === 0 ? (
+          <View style={styles.center}>
+            <Ionicons name="chatbubble-ellipses-outline" size={44} color={Brand.blueSky} />
+            <Text style={[styles.emptyTitle, { color: c.text }]}>No conversations yet</Text>
+            <Text style={[styles.emptyText, { color: Brand.slate400 }]}>
+              Message a seller from any show page and it’ll appear here.
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={convos}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            ListHeaderComponent={
+              requests.length === 0 ? null : (
+                /* Follow requests — the web Messages page's "Requests" tab. */
+                <View>
+                  <Eyebrow style={styles.requestsLabel}>
+                    {`Follow requests (${requests.length})`}
+                  </Eyebrow>
+                  {requests.map((p) => (
+                    <View key={p.uid} style={[styles.row, { borderColor: Brand.hairlineWhite }]}>
+                      <PressScale
+                        onPress={() =>
+                          router.push({
+                            pathname: '/user/[username]',
+                            params: { username: p.username || p.uid, uid: p.uid },
+                          })
+                        }
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${p.name}'s profile`}
+                        style={styles.requestPerson}
+                      >
+                        {p.photoURL ? (
+                          <Image
+                            source={{ uri: p.photoURL }}
+                            style={styles.requestAvatar}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View
+                            style={[styles.requestAvatar, { backgroundColor: Brand.ink600 }]}
                           >
-                            @{p.username}
-                          </Text>
+                            <Text style={[styles.avatarText, { color: Brand.blueSky }]}>
+                              {p.name.slice(0, 2).toUpperCase()}
+                            </Text>
+                          </View>
                         )}
-                      </View>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => handleAccept(p)}
-                      disabled={requestBusy !== null}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Accept follow request from ${p.name}`}
-                      accessibilityState={{ disabled: requestBusy !== null }}
-                      style={({ pressed }) => [
-                        styles.requestBtn,
-                        { backgroundColor: c.cta },
-                        (pressed || requestBusy === p.uid) && { opacity: 0.7 },
-                      ]}
-                    >
-                      {requestBusy === p.uid ? (
-                        <ActivityIndicator size="small" color={c.ctaText} />
-                      ) : (
-                        <Text style={[styles.requestBtnText, { color: c.ctaText }]}>Accept</Text>
-                      )}
-                    </Pressable>
-                    <Pressable
-                      onPress={() => handleDecline(p)}
-                      disabled={requestBusy !== null}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Decline follow request from ${p.name}`}
-                      accessibilityState={{ disabled: requestBusy !== null }}
-                      style={({ pressed }) => [
-                        styles.requestBtn,
-                        { borderWidth: 1, borderColor: c.borderStrong },
-                        (pressed || requestBusy === p.uid) && { opacity: 0.7 },
-                      ]}
-                    >
-                      <Text style={[styles.requestBtnText, { color: c.text }]}>Decline</Text>
-                    </Pressable>
+                        <View style={{ flex: 1 }}>
+                          <Text numberOfLines={1} style={[styles.name, { color: c.text }]}>
+                            {p.name}
+                          </Text>
+                          {!!p.username && (
+                            <Text
+                              numberOfLines={1}
+                              style={[styles.requestHandle, { color: Brand.mistFaint }]}
+                            >
+                              @{p.username}
+                            </Text>
+                          )}
+                        </View>
+                      </PressScale>
+                      <PressScale
+                        onPress={() => handleAccept(p)}
+                        disabled={requestBusy !== null}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Accept follow request from ${p.name}`}
+                        accessibilityState={{ disabled: requestBusy !== null }}
+                        style={[styles.requestBtn, requestBusy === p.uid && { opacity: 0.7 }]}
+                      >
+                        <LinearGradient
+                          colors={[...CtaGradientShell]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.requestBtnFill}
+                        >
+                          {requestBusy === p.uid ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={[styles.requestBtnText, { color: '#FFFFFF' }]}>Accept</Text>
+                          )}
+                        </LinearGradient>
+                      </PressScale>
+                      <PressScale
+                        onPress={() => handleDecline(p)}
+                        disabled={requestBusy !== null}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Decline follow request from ${p.name}`}
+                        accessibilityState={{ disabled: requestBusy !== null }}
+                        style={[
+                          styles.requestBtn,
+                          styles.requestBtnGhost,
+                          requestBusy === p.uid && { opacity: 0.7 },
+                        ]}
+                      >
+                        <Text style={[styles.requestBtnText, { color: c.text }]}>Decline</Text>
+                      </PressScale>
+                    </View>
+                  ))}
+                </View>
+              )
+            }
+            renderItem={({ item }) => (
+              <PressScale
+                onPress={() =>
+                  router.push({
+                    pathname: '/chat/[id]',
+                    params: {
+                      id: item.id,
+                      otherUid: item.otherUid,
+                      otherName: item.otherName,
+                    },
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`Open conversation with ${item.otherName}`}
+                style={[styles.row, { borderColor: Brand.hairlineWhite }]}
+              >
+                {item.otherPhoto ? (
+                  <Image source={{ uri: item.otherPhoto }} style={styles.avatar} contentFit="cover" />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: Brand.ink600 }]}>
+                    <Text style={[styles.avatarText, { color: Brand.blueSky }]}>
+                      {item.otherName.slice(0, 2).toUpperCase()}
+                    </Text>
                   </View>
-                ))}
-              </View>
-            )
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: '/chat/[id]',
-                  params: {
-                    id: item.id,
-                    otherUid: item.otherUid,
-                    otherName: item.otherName,
-                  },
-                })
-              }
-              style={({ pressed }) => [
-                styles.row,
-                { borderColor: c.border, opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              {item.otherPhoto ? (
-                <Image source={{ uri: item.otherPhoto }} style={styles.avatar} contentFit="cover" />
-              ) : (
-                <View style={[styles.avatar, { backgroundColor: c.backgroundSelected }]}>
-                  <Text style={[styles.avatarText, { color: c.primary }]}>
-                    {item.otherName.slice(0, 2).toUpperCase()}
+                )}
+                <View style={{ flex: 1 }}>
+                  <View style={styles.rowTop}>
+                    <Text numberOfLines={1} style={[styles.name, { color: c.text }]}>
+                      {item.otherName}
+                    </Text>
+                    <Text style={[styles.time, { color: Brand.mistFaint }]}>
+                      {timeAgo(item.lastMessageAt)}
+                    </Text>
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.preview,
+                      { color: item.unread > 0 ? c.text : Brand.slate400 },
+                      item.unread > 0 && { fontFamily: Fonts.uiSemiBold },
+                    ]}
+                  >
+                    {item.lastMessageText || 'Say hello 👋'}
                   </Text>
                 </View>
-              )}
-              <View style={{ flex: 1 }}>
-                <View style={styles.rowTop}>
-                  <Text numberOfLines={1} style={[styles.name, { color: c.text }]}>
-                    {item.otherName}
-                  </Text>
-                  <Text style={[styles.time, { color: c.textFaint }]}>
-                    {timeAgo(item.lastMessageAt)}
-                  </Text>
-                </View>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.preview,
-                    { color: item.unread > 0 ? c.text : c.textSecondary },
-                    item.unread > 0 && { fontFamily: Fonts.sansMedium },
-                  ]}
-                >
-                  {item.lastMessageText || 'Say hello 👋'}
-                </Text>
-              </View>
-              {item.unread > 0 && (
-                <View style={[styles.badge, { backgroundColor: c.primary }]}>
-                  <Text style={styles.badgeText}>{item.unread > 9 ? '9+' : item.unread}</Text>
-                </View>
-              )}
-            </Pressable>
-          )}
-        />
-      )}
-    </SafeAreaView>
+                {item.unread > 0 && (
+                  <View style={[styles.badge, { backgroundColor: Brand.blueSky }]}>
+                    <Text style={styles.badgeText}>{item.unread > 9 ? '9+' : item.unread}</Text>
+                  </View>
+                )}
+              </PressScale>
+            )}
+          />
+        )}
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -316,12 +326,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
   },
+  headerTitle: { gap: Spacing.one },
   headerSpacer: { flex: 1 },
   searchBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -332,8 +345,8 @@ const styles = StyleSheet.create({
     padding: Spacing.five,
     gap: Spacing.two,
   },
-  emptyTitle: { fontSize: 17, fontFamily: Fonts.sansSemiBold },
-  emptyText: { fontSize: 14, fontFamily: Fonts.sans, textAlign: 'center', lineHeight: 20 },
+  emptyTitle: { fontSize: 20, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
+  emptyText: { fontSize: 14, fontFamily: Fonts.ui, textAlign: 'center', lineHeight: 20 },
   list: { paddingBottom: Spacing.five },
   row: {
     flexDirection: 'row',
@@ -352,13 +365,10 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontFamily: Fonts.mono, fontSize: 14 },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  name: { flex: 1, fontSize: 15, fontFamily: Fonts.sansSemiBold },
+  name: { flex: 1, fontSize: 15, fontFamily: Fonts.uiSemiBold },
   time: { fontSize: 11, fontFamily: Fonts.mono },
-  preview: { fontSize: 13, fontFamily: Fonts.sans, marginTop: 2 },
+  preview: { fontSize: 13, fontFamily: Fonts.ui, marginTop: 2 },
   requestsLabel: {
-    fontSize: 11.5,
-    fontFamily: Fonts.sansMedium,
-    letterSpacing: 1.1,
     paddingHorizontal: Spacing.three,
     paddingBottom: Spacing.one,
   },
@@ -370,15 +380,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  requestHandle: { fontSize: 12, fontFamily: Fonts.sans, marginTop: 1 },
+  requestHandle: { fontSize: 12, fontFamily: Fonts.ui, marginTop: 1 },
   requestBtn: {
     borderRadius: 999,
-    paddingHorizontal: 14,
     minHeight: 34,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  requestBtnText: { fontSize: 13, fontFamily: Fonts.sansSemiBold },
+  requestBtnFill: {
+    minHeight: 34,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  requestBtnGhost: {
+    borderWidth: 1,
+    borderColor: Brand.hairline,
+    paddingHorizontal: 14,
+  },
+  requestBtnText: { fontSize: 13, fontFamily: Fonts.uiBold },
   badge: {
     minWidth: 20,
     height: 20,
@@ -387,5 +409,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 5,
   },
-  badgeText: { color: '#04102A', fontSize: 11, fontFamily: Fonts.sansSemiBold },
+  badgeText: { color: '#04122B', fontSize: 11, fontFamily: Fonts.uiBold },
 });

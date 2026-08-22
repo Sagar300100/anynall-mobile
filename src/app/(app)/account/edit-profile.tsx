@@ -21,7 +21,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,9 +28,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
-import { Field, FormError, PrimaryButton, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { Field, FormError, useBrandColors } from '@/components/ui/form';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { getMyProfile, updateMyProfile } from '@/lib/api';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { auth } from '@/lib/firebase';
@@ -109,17 +111,19 @@ export default function EditProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/profile'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Edit profile</Text>
       </View>
 
@@ -154,7 +158,7 @@ export default function EditProfileScreen() {
             )}
 
             {!!username && (
-              <View style={[styles.handleRow, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+              <View style={styles.handleRow}>
                 <Ionicons name="at-outline" size={18} color={c.primary} />
                 <View style={styles.handleText}>
                   <Text style={[styles.handleLabel, { color: c.text }]}>@{username}</Text>
@@ -190,15 +194,17 @@ export default function EditProfileScreen() {
             </Text>
 
             <FormError message={error} />
-            <PrimaryButton title="Save profile" onPress={save} loading={saving} disabled={!name.trim()} />
+            <GradientCTA title={saving ? 'Saving…' : 'Save profile'} onPress={save} disabled={saving || !name.trim()} />
           </ScrollView>
         </KeyboardAvoidingView>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   flex: { flex: 1 },
   topBar: {
@@ -210,11 +216,11 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.three, paddingBottom: 90 },
-  note: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18, marginTop: -Spacing.two },
+  note: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18, marginTop: -Spacing.two },
   counter: { fontSize: 11.5, fontFamily: Fonts.mono, alignSelf: 'flex-end', marginTop: -Spacing.two },
   bioInput: { minHeight: 100, textAlignVertical: 'top' },
 
@@ -227,17 +233,19 @@ const styles = StyleSheet.create({
     padding: Spacing.two + Spacing.one,
     backgroundColor: 'rgba(74,222,128,0.08)',
   },
-  okText: { flex: 1, fontSize: 13, fontFamily: Fonts.sansMedium, lineHeight: 18 },
+  okText: { flex: 1, fontSize: 13, fontFamily: Fonts.uiMedium, lineHeight: 18 },
 
   handleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two + Spacing.one,
     borderWidth: 1,
-    borderRadius: 14,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
     padding: Spacing.three,
   },
   handleText: { flex: 1, gap: 2 },
-  handleLabel: { fontSize: 14.5, fontFamily: Fonts.sansSemiBold },
-  handleNote: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 17 },
+  handleLabel: { fontSize: 14.5, fontFamily: Fonts.uiSemiBold },
+  handleNote: { fontSize: 12, fontFamily: Fonts.ui, lineHeight: 17 },
 });

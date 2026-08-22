@@ -5,12 +5,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { useAuthStatus } from '@/lib/auth-gate';
 import {
   getFollowCounts,
@@ -58,17 +60,19 @@ export default function ConnectionsScreen() {
   const list = tab === 'followers' ? followers : following;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/profile'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Followers & following</Text>
       </View>
 
@@ -82,7 +86,7 @@ export default function ConnectionsScreen() {
       ) : (
         <>
           {/* ── Tabs ── */}
-          <View style={[styles.tabs, { borderColor: c.border }]}>
+          <View style={[styles.tabs, { borderColor: Brand.hairlineWhite }]}>
             {(
               [
                 { key: 'followers' as Tab, label: `Followers (${counts.followers})` },
@@ -91,7 +95,7 @@ export default function ConnectionsScreen() {
             ).map(({ key, label }) => {
               const active = tab === key;
               return (
-                <Pressable
+                <PressScale
                   key={key}
                   onPress={() => setTab(key)}
                   accessibilityRole="tab"
@@ -103,7 +107,7 @@ export default function ConnectionsScreen() {
                     style={[
                       styles.tabText,
                       { color: active ? c.text : c.textSecondary },
-                      active && { fontFamily: Fonts.sansSemiBold },
+                      active && { fontFamily: Fonts.uiSemiBold },
                     ]}
                   >
                     {label}
@@ -111,10 +115,10 @@ export default function ConnectionsScreen() {
                   <View
                     style={[
                       styles.tabUnderline,
-                      { backgroundColor: active ? c.primary : 'transparent' },
+                      { backgroundColor: active ? Brand.blueSky : 'transparent' },
                     ]}
                   />
-                </Pressable>
+                </PressScale>
               );
             })}
           </View>
@@ -141,11 +145,11 @@ export default function ConnectionsScreen() {
             </View>
           ) : (
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-              <View style={[styles.group, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+              <View style={styles.group}>
                 {list.map((p, i) => (
                   <View key={p.uid}>
-                    {i > 0 && <View style={[styles.divider, { backgroundColor: c.border }]} />}
-                    <Pressable
+                    {i > 0 && <View style={[styles.divider, { backgroundColor: Brand.hairlineWhite }]} />}
+                    <PressScale
                       onPress={() =>
                         router.push({
                           pathname: '/user/[username]',
@@ -154,10 +158,7 @@ export default function ConnectionsScreen() {
                       }
                       accessibilityRole="button"
                       accessibilityLabel={`View ${p.name}'s profile`}
-                      style={({ pressed }) => [
-                        styles.row,
-                        pressed && { backgroundColor: 'rgba(120,150,210,0.07)' },
-                      ]}
+                      style={styles.row}
                     >
                       {p.photoURL ? (
                         <Image source={{ uri: p.photoURL }} style={styles.avatar} contentFit="cover" />
@@ -177,7 +178,7 @@ export default function ConnectionsScreen() {
                         )}
                       </View>
                       <Ionicons name="chevron-forward" size={16} color={c.textFaint} />
-                    </Pressable>
+                    </PressScale>
                   </View>
                 ))}
               </View>
@@ -185,11 +186,13 @@ export default function ConnectionsScreen() {
           )}
         </>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -200,7 +203,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
 
   tabs: {
     flexDirection: 'row',
@@ -208,21 +211,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
   },
   tabBtn: { flex: 1, alignItems: 'center', gap: 7, paddingTop: Spacing.two, minHeight: 44 },
-  tabText: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
+  tabText: { fontSize: 13.5, fontFamily: Fonts.uiMedium },
   tabUnderline: { height: 2, alignSelf: 'stretch', borderRadius: 1 },
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.two, padding: Spacing.four },
-  emptyTitle: { fontSize: 16, fontFamily: Fonts.sansSemiBold },
+  emptyTitle: { fontSize: 16, fontFamily: Fonts.uiSemiBold },
   emptyBody: {
     fontSize: 13.5,
-    fontFamily: Fonts.sans,
+    fontFamily: Fonts.ui,
     lineHeight: 20,
     textAlign: 'center',
     maxWidth: 300,
   },
 
   scroll: { padding: Spacing.three, paddingBottom: Spacing.six },
-  group: { borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  group: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
   divider: { height: StyleSheet.hairlineWidth, marginHorizontal: Spacing.three },
   row: {
     flexDirection: 'row',
@@ -235,6 +244,6 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20 },
   avatarEmpty: { borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   rowText: { flex: 1, gap: 1 },
-  rowName: { fontSize: 14.5, fontFamily: Fonts.sansMedium },
-  rowHandle: { fontSize: 12, fontFamily: Fonts.sans },
+  rowName: { fontSize: 14.5, fontFamily: Fonts.uiMedium },
+  rowHandle: { fontSize: 12, fontFamily: Fonts.ui },
 });

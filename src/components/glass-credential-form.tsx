@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 
 // Frosted glass: a dark blue base for legibility, a white sheen on top so the
 // panel catches light from the nebula, and a bright hairline edge.
@@ -142,11 +142,15 @@ const Row = forwardRef<TextInput, RowProps>(function Row(
   { icon, label, trailing, onFocus, onBlur, style, ...props },
   ref
 ) {
-  const c = useBrandColors();
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.row}>
-      <Ionicons name={icon} size={19} color={focused ? c.primary : 'rgba(150,180,240,0.85)'} />
+      {/* Auth focus accent (design-language §6.4). */}
+      <Ionicons
+        name={icon}
+        size={19}
+        color={focused ? Brand.authAccent : 'rgba(150,180,240,0.85)'}
+      />
       <TextInput
         ref={ref}
         placeholderTextColor={PLACEHOLDER}

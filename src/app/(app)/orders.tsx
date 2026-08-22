@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -12,9 +11,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { FadeUp } from '@/components/brand/fade-up';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { PayNowButton, orderAwaitingPayment } from '@/components/pay-now';
 import { DisplayText, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { listMyOrders, type BuyerOrder } from '@/lib/api';
 import { humanizeStatus } from '@/lib/commerce';
 
@@ -67,116 +70,121 @@ export default function OrdersScreen() {
   }, [load]);
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Ionicons name="chevron-back" size={24} color={c.text} />
-        </Pressable>
-        <DisplayText size={26}>Your orders.</DisplayText>
-      </View>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <FadeUp index={0} style={styles.header}>
+          <PressScale
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-back" size={24} color={c.text} />
+          </PressScale>
+          <View style={styles.headerTitle}>
+            <Eyebrow>Purchases</Eyebrow>
+            <DisplayText size={26}>Your orders.</DisplayText>
+          </View>
+        </FadeUp>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={c.primary} />
-        </View>
-      ) : (
-        <FlatList
-          data={orders}
-          keyExtractor={(o) => o.id}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            <View style={styles.center}>
-              <Ionicons name="bag-handle-outline" size={48} color={c.primary} />
-              <Text style={[styles.emptyTitle, { color: c.text }]}>
-                {error ?? 'No orders yet.'}
-              </Text>
-              {!error && (
-                <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
-                  Join a live show and grab your first drop.
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={Brand.blueSky} />
+          </View>
+        ) : (
+          <FlatList
+            data={orders}
+            keyExtractor={(o) => o.id}
+            contentContainerStyle={styles.list}
+            ListEmptyComponent={
+              <View style={styles.center}>
+                <Ionicons name="bag-handle-outline" size={48} color={Brand.blueSky} />
+                <Text style={[styles.emptyTitle, { color: c.text }]}>
+                  {error ?? 'No orders yet.'}
                 </Text>
-              )}
-            </View>
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => router.push({ pathname: '/order/[id]', params: { id: item.id } })}
-              accessibilityRole="button"
-              accessibilityLabel={`Order details for ${item.productTitle || 'order'}`}
-              style={({ pressed }) => [
-                styles.card,
-                { backgroundColor: c.cardBackground, borderColor: c.border },
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              <View style={styles.cardTop}>
-                <Text numberOfLines={2} style={[styles.title, { color: c.text }]}>
-                  {item.productTitle || 'Order'}
-                </Text>
-                <Text style={[styles.amount, { color: c.text }]}>{formatAmount(item)}</Text>
-              </View>
-              <View style={styles.cardBottom}>
-                <Text
-                  style={[styles.status, { color: statusColor(item.status, c) }]}
-                >
-                  {humanizeStatus(item.status || 'pending').toUpperCase()}
-                </Text>
-                {item.createdAt && (
-                  <Text style={[styles.date, { color: c.textSecondary }]}>
-                    {new Date(item.createdAt).toLocaleDateString([], {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
+                {!error && (
+                  <Text style={[styles.emptyBody, { color: Brand.slate400 }]}>
+                    Join a live show and grab your first drop.
                   </Text>
                 )}
               </View>
-              {item.shipment?.awbCode && (
-                <View style={[styles.shipRow, { borderTopColor: c.border }]}>
-                  <Ionicons name="cube-outline" size={15} color={c.primary} />
-                  <Text style={[styles.shipText, { color: c.textSecondary }]}>
-                    {item.shipment.courierName || 'Courier'} · AWB {item.shipment.awbCode}
-                    {item.shipment.status ? ` · ${item.shipment.status}` : ''}
+            }
+            renderItem={({ item }) => (
+              <PressScale
+                onPress={() => router.push({ pathname: '/order/[id]', params: { id: item.id } })}
+                accessibilityRole="button"
+                accessibilityLabel={`Order details for ${item.productTitle || 'order'}`}
+                style={styles.card}
+              >
+                <View style={styles.cardTop}>
+                  <Text numberOfLines={2} style={[styles.title, { color: c.text }]}>
+                    {item.productTitle || 'Order'}
                   </Text>
-                  <Ionicons name="chevron-forward" size={14} color={c.textFaint} />
+                  <Text style={[styles.amount, { color: Brand.blueSky }]}>{formatAmount(item)}</Text>
                 </View>
-              )}
-              {/* The order has no delivery address yet (giveaway win, offer
-                  accepted before one was saved) — v1: save the profile
-                  address, the seller collects it from there. */}
-              {item.needsAddress === true && !item.shipment?.awbCode && (
-                <Pressable
-                  onPress={() => router.push('/account/address')}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add your delivery address so the seller can ship"
-                  style={({ pressed }) => [
-                    styles.shipRow,
-                    { borderTopColor: c.border, opacity: pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  <Ionicons name="location-outline" size={15} color={c.primary} />
-                  <Text style={[styles.shipText, { color: c.textSecondary }]}>
-                    Add your delivery address so the seller can ship
+                <View style={styles.cardBottom}>
+                  <Text
+                    style={[styles.status, { color: statusColor(item.status, c) }]}
+                  >
+                    {humanizeStatus(item.status || 'pending').toUpperCase()}
                   </Text>
-                  <Ionicons name="chevron-forward" size={14} color={c.textFaint} />
-                </Pressable>
-              )}
-              {/* Pay-now (Gap 8): an accepted offer creates the order server-
-                  side, so this list is the buyer's checkout entry point. */}
-              {orderAwaitingPayment(item) && (
-                <PayNowButton order={item} onPaid={() => load(true)} />
-              )}
-            </Pressable>
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={c.primary} />
-          }
-        />
-      )}
-    </SafeAreaView>
+                  {item.createdAt && (
+                    <Text style={[styles.date, { color: Brand.slate400 }]}>
+                      {new Date(item.createdAt).toLocaleDateString([], {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </Text>
+                  )}
+                </View>
+                {item.shipment?.awbCode && (
+                  <View style={[styles.shipRow, { borderTopColor: Brand.hairlineWhite }]}>
+                    <Ionicons name="cube-outline" size={15} color={Brand.blueSky} />
+                    <Text style={[styles.shipText, { color: Brand.slate400 }]}>
+                      {item.shipment.courierName || 'Courier'} · AWB {item.shipment.awbCode}
+                      {item.shipment.status ? ` · ${item.shipment.status}` : ''}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={14} color={Brand.mistFaint} />
+                  </View>
+                )}
+                {/* The order has no delivery address yet (giveaway win, offer
+                    accepted before one was saved) — v1: save the profile
+                    address, the seller collects it from there. */}
+                {item.needsAddress === true && !item.shipment?.awbCode && (
+                  <PressScale
+                    onPress={() => router.push('/account/address')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add your delivery address so the seller can ship"
+                    style={[styles.shipRow, { borderTopColor: Brand.hairlineWhite }]}
+                  >
+                    <Ionicons name="location-outline" size={15} color={Brand.blueSky} />
+                    <Text style={[styles.shipText, { color: Brand.slate400 }]}>
+                      Add your delivery address so the seller can ship
+                    </Text>
+                    <Ionicons name="chevron-forward" size={14} color={Brand.mistFaint} />
+                  </PressScale>
+                )}
+                {/* Pay-now (Gap 8): an accepted offer creates the order server-
+                    side, so this list is the buyer's checkout entry point. */}
+                {orderAwaitingPayment(item) && (
+                  <PayNowButton order={item} onPaid={() => load(true)} />
+                )}
+              </PressScale>
+            )}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={Brand.blueSky} />
+            }
+          />
+        )}
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -184,6 +192,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     padding: Spacing.three,
   },
+  headerTitle: { gap: Spacing.one },
   center: {
     flexGrow: 1,
     alignItems: 'center',
@@ -192,13 +201,20 @@ const styles = StyleSheet.create({
     padding: Spacing.five,
   },
   list: { padding: Spacing.three, gap: Spacing.three, flexGrow: 1 },
-  card: { borderWidth: 1, borderRadius: 12, padding: Spacing.three, gap: Spacing.two },
+  card: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.three },
-  title: { flex: 1, fontSize: 15, fontFamily: Fonts.sansSemiBold, lineHeight: 20 },
-  amount: { fontSize: 15, fontFamily: Fonts.mono },
+  title: { flex: 1, fontSize: 15, fontFamily: Fonts.uiSemiBold, lineHeight: 20 },
+  amount: { fontSize: 15, fontFamily: Fonts.uiExtraBold },
   cardBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   status: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1.2 },
-  date: { fontSize: 12, fontFamily: Fonts.sans },
+  date: { fontSize: 12, fontFamily: Fonts.ui },
   shipRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -206,7 +222,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     paddingTop: Spacing.two,
   },
-  shipText: { fontSize: 12, fontFamily: Fonts.sans, flex: 1 },
-  emptyTitle: { fontSize: 20, fontFamily: Fonts.display },
-  emptyBody: { fontSize: 14, fontFamily: Fonts.sans, textAlign: 'center' },
+  shipText: { fontSize: 12, fontFamily: Fonts.ui, flex: 1 },
+  emptyTitle: { fontSize: 20, fontFamily: Fonts.display, letterSpacing: -0.5 },
+  emptyBody: { fontSize: 14, fontFamily: Fonts.ui, textAlign: 'center' },
 });

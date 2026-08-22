@@ -22,7 +22,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -30,9 +29,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
-import { PrimaryButton, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { useBrandColors } from '@/components/ui/form';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { db, auth } from '@/lib/firebase';
 import { completeDigiLocker, initDigiLocker } from '@/lib/seller';
@@ -162,17 +164,19 @@ export default function VerifyIdentityScreen() {
   const busy = phase === 'creating' || phase === 'opening' || phase === 'checking';
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Verified buyer</Text>
       </View>
 
@@ -209,7 +213,7 @@ export default function VerifyIdentityScreen() {
                 It keeps the community safe for everyone.
               </Text>
 
-              <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+              <View style={styles.card}>
                 {(
                   [
                     ['lock-closed-outline', 'You sign in on DigiLocker’s own page — never inside Any&All. No Aadhaar number, password or OTP is ever typed here.'],
@@ -228,49 +232,50 @@ export default function VerifyIdentityScreen() {
                 <View
                   style={[
                     styles.msgBox,
-                    { borderColor: phase === 'mismatch' ? 'rgba(255,196,107,0.4)' : c.border },
+                    { borderColor: phase === 'mismatch' ? 'rgba(255,196,107,0.4)' : Brand.hairlineWhite },
                   ]}
                 >
                   <Text style={[styles.msgText, { color: c.textSecondary }]}>{message}</Text>
                   {phase === 'mismatch' && (
-                    <Pressable
+                    <PressScale
                       onPress={() => router.push('/account/edit-profile')}
                       accessibilityRole="button"
                       accessibilityLabel="Fix your account name"
                       hitSlop={6}
-                      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                     >
                       <Text style={[styles.msgLink, { color: c.primary }]}>
                         Fix your account name →
                       </Text>
-                    </Pressable>
+                    </PressScale>
                   )}
                 </View>
               )}
 
-              <PrimaryButton
+              <GradientCTA
                 title={
-                  phase === 'checking'
-                    ? 'Checking with DigiLocker…'
+                  busy
+                    ? phase === 'checking'
+                      ? 'Checking with DigiLocker…'
+                      : 'Opening DigiLocker…'
                     : phase === 'pending'
                       ? 'Check verification again'
                       : 'Verify with DigiLocker'
                 }
                 onPress={phase === 'pending' ? () => checkStatus(false) : startVerification}
-                loading={busy}
+                disabled={busy}
               />
               {phase === 'pending' && (
-                <Pressable
+                <PressScale
                   onPress={startVerification}
                   disabled={busy}
                   accessibilityRole="button"
                   accessibilityLabel="Start the DigiLocker journey again"
-                  style={({ pressed }) => [styles.again, { opacity: pressed ? 0.6 : 1 }]}
+                  style={styles.again}
                 >
                   <Text style={[styles.againText, { color: c.textSecondary }]}>
                     Start the journey again
                   </Text>
-                </Pressable>
+                </PressScale>
               )}
               {!auth.currentUser?.displayName?.trim() && (
                 <Text style={[styles.hint, { color: c.textFaint }]}>
@@ -282,11 +287,13 @@ export default function VerifyIdentityScreen() {
           )}
         </ScrollView>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -297,16 +304,22 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.three, paddingBottom: 90 },
-  body: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 21 },
-  hint: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18, textAlign: 'center' },
+  body: { fontSize: 14, fontFamily: Fonts.ui, lineHeight: 21 },
+  hint: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18, textAlign: 'center' },
 
-  card: { borderWidth: 1, borderRadius: 16, padding: Spacing.three + Spacing.one },
+  card: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: Spacing.three + Spacing.one,
+  },
   pointRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.two + Spacing.one },
-  pointText: { flex: 1, fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
+  pointText: { flex: 1, fontSize: 13, fontFamily: Fonts.ui, lineHeight: 19 },
 
   msgBox: {
     borderWidth: 1,
@@ -315,11 +328,11 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     backgroundColor: 'rgba(255,196,107,0.05)',
   },
-  msgText: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
-  msgLink: { fontSize: 13, fontFamily: Fonts.sansMedium, paddingVertical: 2 },
+  msgText: { fontSize: 13, fontFamily: Fonts.ui, lineHeight: 19 },
+  msgLink: { fontSize: 13, fontFamily: Fonts.uiMedium, paddingVertical: 2 },
 
   again: { alignSelf: 'center', paddingVertical: Spacing.one, minHeight: 40, justifyContent: 'center' },
-  againText: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  againText: { fontSize: 13, fontFamily: Fonts.uiMedium },
 
   done: { alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.five },
   doneRing: {
@@ -331,6 +344,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.two,
   },
-  doneTitle: { fontSize: 19, fontFamily: Fonts.sansSemiBold, textAlign: 'center' },
+  doneTitle: { fontSize: 20, fontFamily: Fonts.displayMedium, letterSpacing: -0.5, textAlign: 'center' },
   doneBody: { textAlign: 'center', maxWidth: 330 },
 });

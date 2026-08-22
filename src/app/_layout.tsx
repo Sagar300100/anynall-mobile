@@ -1,5 +1,7 @@
 // Per-weight subpath imports: the package barrels eagerly require all ten
 // weights, and Metro fails resolving ones we don't use.
+import { Archivo_700Bold } from '@expo-google-fonts/archivo/700Bold';
+import { Archivo_800ExtraBold } from '@expo-google-fonts/archivo/800ExtraBold';
 import { CormorantGaramond_500Medium } from '@expo-google-fonts/cormorant-garamond/500Medium';
 import { CormorantGaramond_500Medium_Italic } from '@expo-google-fonts/cormorant-garamond/500Medium_Italic';
 import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
@@ -7,6 +9,10 @@ import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
 import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
 import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono/500Medium';
+import { PlusJakartaSans_500Medium } from '@expo-google-fonts/plus-jakarta-sans/500Medium';
+import { PlusJakartaSans_600SemiBold } from '@expo-google-fonts/plus-jakarta-sans/600SemiBold';
+import { PlusJakartaSans_700Bold } from '@expo-google-fonts/plus-jakarta-sans/700Bold';
+import { PlusJakartaSans_800ExtraBold } from '@expo-google-fonts/plus-jakarta-sans/800ExtraBold';
 import { registerGlobals, setLogLevel } from '@livekit/react-native';
 import { useFonts } from 'expo-font';
 import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
@@ -204,6 +210,14 @@ function AppStack() {
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
+    // Redesign faces (design-language §2): Archivo display + Jakarta UI.
+    Archivo_700Bold,
+    Archivo_800ExtraBold,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
+    // Legacy faces — kept so unswept screens render unchanged.
     CormorantGaramond_500Medium,
     CormorantGaramond_500Medium_Italic,
     Inter_400Regular,

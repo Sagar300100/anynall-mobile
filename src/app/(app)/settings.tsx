@@ -14,7 +14,6 @@ import { useCallback, useState } from 'react';
 import {
   Alert,
   Modal,
-  Pressable,
   ScrollView,
   Share,
   StyleSheet,
@@ -26,9 +25,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MenuGroup, MenuRow } from '@/components/account-menu';
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
-import { PrimaryButton, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { useBrandColors } from '@/components/ui/form';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { exportMyData, hasPasswordProvider, isTwoFactorEnrolled } from '@/lib/account';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { redeemReferral, referralRedeemError } from '@/lib/credits';
@@ -229,17 +232,19 @@ export default function SettingsScreen() {
   const passwordAccount = hasPasswordProvider();
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/profile'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Settings</Text>
       </View>
 
@@ -252,7 +257,7 @@ export default function SettingsScreen() {
         />
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>ACCOUNT</Text>
+          <Eyebrow style={styles.sectionLabel}>Account</Eyebrow>
           <MenuGroup>
             {/* Informational row — not a button, so no chevron and no press state. */}
             <View
@@ -296,7 +301,7 @@ export default function SettingsScreen() {
             />
           </MenuGroup>
 
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>SHOPPING</Text>
+          <Eyebrow style={styles.sectionLabel}>Shopping</Eyebrow>
           <MenuGroup>
             <MenuRow
               icon="location-outline"
@@ -326,7 +331,7 @@ export default function SettingsScreen() {
             )}
           </MenuGroup>
 
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>NOTIFICATIONS</Text>
+          <Eyebrow style={styles.sectionLabel}>Notifications</Eyebrow>
           <MenuGroup>
             {/* Toggle row like Private account — flips in place, no navigation.
                 Registers/unregisters this device's Expo push token (lib/push.ts).
@@ -346,13 +351,13 @@ export default function SettingsScreen() {
                 onValueChange={togglePush}
                 disabled={pushOn === null || pushBusy}
                 accessibilityLabel="Push notifications"
-                trackColor={{ false: 'rgba(120,150,210,0.35)', true: c.primary }}
+                trackColor={{ false: 'rgba(120,150,210,0.35)', true: Brand.blueSky }}
                 thumbColor="#FFFFFF"
               />
             </View>
           </MenuGroup>
 
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>SECURITY</Text>
+          <Eyebrow style={styles.sectionLabel}>Security</Eyebrow>
           <MenuGroup>
             <MenuRow
               icon={twoFactorOn ? 'shield-checkmark-outline' : 'shield-outline'}
@@ -372,7 +377,7 @@ export default function SettingsScreen() {
             />
           </MenuGroup>
 
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>PRIVACY & DATA</Text>
+          <Eyebrow style={styles.sectionLabel}>Privacy & Data</Eyebrow>
           <MenuGroup>
             {/* Toggle row, not a MenuRow — it flips a value in place rather
                 than navigating. Writes publicProfiles/{uid}.isPrivate, the
@@ -391,7 +396,7 @@ export default function SettingsScreen() {
                 onValueChange={togglePrivacy}
                 disabled={privateAcct === null || privacyBusy}
                 accessibilityLabel="Private account"
-                trackColor={{ false: 'rgba(120,150,210,0.35)', true: c.primary }}
+                trackColor={{ false: 'rgba(120,150,210,0.35)', true: Brand.blueSky }}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -410,7 +415,7 @@ export default function SettingsScreen() {
             />
           </MenuGroup>
 
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>HELP & LEGAL</Text>
+          <Eyebrow style={styles.sectionLabel}>Help & Legal</Eyebrow>
           <MenuGroup>
             <MenuRow
               icon="help-circle-outline"
@@ -449,25 +454,25 @@ export default function SettingsScreen() {
       >
         <View style={styles.sheetScrim}>
           <View
-            style={[styles.sheet, { backgroundColor: c.backgroundElement, borderColor: c.border }]}
+            style={[styles.sheet, { backgroundColor: Brand.ink800, borderColor: Brand.hairline }]}
           >
             <View style={styles.sheetHead}>
               <Text style={[styles.sheetTitle, { color: c.text }]}>Referral code</Text>
-              <Pressable
+              <PressScale
                 onPress={() => setReferralOpen(false)}
                 hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel="Close referral code entry"
               >
                 <Ionicons name="close" size={20} color={c.textSecondary} />
-              </Pressable>
+              </PressScale>
             </View>
             <Text style={[styles.sheetBody, { color: c.textSecondary }]}>
               Enter the @handle of the member who invited you. It only works before your first
               purchase — the credit for you both arrives once that purchase is paid.
             </Text>
             <View
-              style={[styles.codeField, { borderColor: c.border, backgroundColor: c.background }]}
+              style={[styles.codeField, { borderColor: Brand.hairlineWhite, backgroundColor: 'rgba(255,255,255,0.05)' }]}
             >
               <Text style={[styles.codeAt, { color: c.textSecondary }]}>@</Text>
               <TextInput
@@ -488,20 +493,21 @@ export default function SettingsScreen() {
             {!!referralErr && (
               <Text style={[styles.codeError, { color: c.danger }]}>{referralErr}</Text>
             )}
-            <PrimaryButton
-              title="Apply code"
+            <GradientCTA
+              title={referralBusy ? 'Applying…' : 'Apply code'}
               onPress={applyReferral}
-              loading={referralBusy}
-              disabled={!referralCode.trim()}
+              disabled={referralBusy || !referralCode.trim()}
             />
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -512,9 +518,9 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { fontSize: 20, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, paddingBottom: Spacing.five, gap: Spacing.two },
-  sectionLabel: { fontSize: 11.5, fontFamily: Fonts.sansMedium, letterSpacing: 1.1, marginLeft: 4 },
+  sectionLabel: { marginLeft: 4, marginTop: Spacing.two },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -524,16 +530,16 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   infoText: { flex: 1, gap: 1 },
-  infoLabel: { fontSize: 15, fontFamily: Fonts.sansSemiBold },
-  infoValue: { fontSize: 12.5, fontFamily: Fonts.sans },
-  infoNote: { fontSize: 11, fontFamily: Fonts.sans, marginTop: 1 },
+  infoLabel: { fontSize: 15, fontFamily: Fonts.uiSemiBold },
+  infoValue: { fontSize: 12.5, fontFamily: Fonts.ui },
+  infoNote: { fontSize: 11, fontFamily: Fonts.ui, marginTop: 1 },
   badge: {
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 3,
   },
-  badgeText: { fontSize: 11, fontFamily: Fonts.sansMedium },
+  badgeText: { fontSize: 11, fontFamily: Fonts.uiSemiBold },
 
   // ── Referral sheet ──
   sheetScrim: {
@@ -542,26 +548,26 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     borderWidth: 1,
     padding: Spacing.three,
     paddingBottom: Spacing.five,
     gap: Spacing.three,
   },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sheetTitle: { fontSize: 20, fontFamily: Fonts.sansSemiBold },
-  sheetBody: { fontSize: 13.5, fontFamily: Fonts.sans, lineHeight: 20 },
+  sheetTitle: { fontSize: 20, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
+  sheetBody: { fontSize: 13.5, fontFamily: Fonts.ui, lineHeight: 20 },
   codeField: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 13,
     paddingHorizontal: Spacing.three,
     minHeight: 52,
   },
-  codeAt: { fontSize: 16, fontFamily: Fonts.sansSemiBold },
-  codeInput: { flex: 1, fontSize: 16, fontFamily: Fonts.sans, padding: 0 },
-  codeError: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  codeAt: { fontSize: 16, fontFamily: Fonts.uiSemiBold },
+  codeInput: { flex: 1, fontSize: 16, fontFamily: Fonts.ui, padding: 0 },
+  codeError: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
 });

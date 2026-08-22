@@ -12,6 +12,7 @@
 // than a silent no-op.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -27,9 +28,11 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { ChoiceRow, Hint, Note, PrimaryCta, TAB_BAR_CLEARANCE, TONE } from '@/components/step5-parts';
 import { Field, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, CtaGradientShell, Fonts, Spacing } from '@/constants/theme';
 import { formatPaise } from '@/lib/commerce';
 import {
   CONDITIONS,
@@ -115,30 +118,29 @@ export default function InventoryScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/sell'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Inventory</Text>
-        <Pressable
+        <PressScale
           onPress={() => router.push('/product-new')}
           accessibilityRole="button"
           accessibilityLabel="Add product"
           hitSlop={8}
-          style={({ pressed }) => [
-            styles.addBtn,
-            { borderColor: 'rgba(74,143,229,0.55)', opacity: pressed ? 0.7 : 1 },
-          ]}
+          style={[styles.addBtn, { borderColor: 'rgba(74,143,229,0.55)' }]}
         >
           <Ionicons name="add" size={20} color={c.primary} />
-        </Pressable>
+        </PressScale>
       </View>
 
       <ScrollView
@@ -169,19 +171,22 @@ export default function InventoryScreen() {
             <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
               Add your first item and it’ll be ready to sell in a live show or on its own.
             </Text>
-            <Pressable
+            <PressScale
               onPress={() => router.push('/product-new')}
               accessibilityRole="button"
               accessibilityLabel="Add your first product"
-              style={({ pressed }) => [
-                styles.emptyCta,
-                { backgroundColor: '#2E6BFF' },
-                pressed && { opacity: 0.85 },
-              ]}
+              style={styles.emptyCta}
             >
-              <Ionicons name="add" size={18} color="#FFFFFF" />
-              <Text style={styles.emptyCtaText}>Add product</Text>
-            </Pressable>
+              <LinearGradient
+                colors={[...CtaGradientShell]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.emptyCtaFill}
+              >
+                <Ionicons name="add" size={18} color="#FFFFFF" />
+                <Text style={styles.emptyCtaText}>Add product</Text>
+              </LinearGradient>
+            </PressScale>
           </View>
         ) : (
           items.map((p) => {
@@ -194,18 +199,14 @@ export default function InventoryScreen() {
             const left = Math.max(0, p.stock - p.sold);
             const out = left <= 0;
             return (
-              <Pressable
+              <PressScale
                 key={p.id}
                 onPress={() => setEditing(p)}
                 accessibilityRole="button"
                 accessibilityLabel={`${p.title}, ${formatPaise(p.price)}, ${
                   out ? 'sold out' : `${left} left`
                 }. Edit listing`}
-                style={({ pressed }) => [
-                  styles.row,
-                  { backgroundColor: c.cardBackground, borderColor: c.border },
-                  pressed && { opacity: 0.8 },
-                ]}
+                style={styles.row}
               >
                 {p.thumbnail_url ? (
                   <Image source={{ uri: p.thumbnail_url }} style={styles.thumb} contentFit="cover" />
@@ -229,14 +230,14 @@ export default function InventoryScreen() {
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 3 }}>
-                  <Text style={[styles.price, { color: c.text }]}>{formatPaise(p.price)}</Text>
+                  <Text style={styles.price}>{formatPaise(p.price)}</Text>
                   {/* Stock state is written out, not signalled by colour alone. */}
                   <Text style={[styles.stock, { color: out ? TONE.bad : c.textSecondary }]}>
                     {out ? 'Sold out' : `${left} left`}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={c.textFaint} />
-              </Pressable>
+              </PressScale>
             );
           })
         )}
@@ -253,7 +254,8 @@ export default function InventoryScreen() {
           }}
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -550,6 +552,7 @@ function EditSheet({
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -561,7 +564,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 21, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 21, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   addBtn: {
     width: 38,
     height: 38,
@@ -577,35 +580,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two + Spacing.one,
     borderWidth: 1,
-    borderRadius: 14,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
     padding: Spacing.two,
   },
   thumb: { width: 54, height: 54, borderRadius: 10 },
   thumbEmpty: { borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
-  meta: { fontSize: 11.5, fontFamily: Fonts.sans },
-  price: { fontSize: 13.5, fontFamily: Fonts.sansSemiBold },
-  stock: { fontSize: 11, fontFamily: Fonts.sans },
+  title: { fontSize: 13.5, fontFamily: Fonts.uiSemiBold },
+  meta: { fontSize: 11.5, fontFamily: Fonts.ui },
+  price: { fontSize: 13.5, fontFamily: Fonts.uiExtraBold, color: Brand.blueSky },
+  stock: { fontSize: 11, fontFamily: Fonts.ui },
 
   empty: { alignItems: 'center', gap: 8, paddingTop: Spacing.four },
-  emptyTitle: { fontSize: 16, fontFamily: Fonts.sansSemiBold },
+  emptyTitle: { fontSize: 18, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   emptyBody: {
     fontSize: 12.5,
-    fontFamily: Fonts.sans,
+    fontFamily: Fonts.ui,
     lineHeight: 17.5,
     textAlign: 'center',
     paddingHorizontal: Spacing.three,
   },
-  emptyCta: {
+  emptyCta: { borderRadius: 13, marginTop: Spacing.two },
+  emptyCtaFill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    borderRadius: 14,
+    borderRadius: 13,
     paddingHorizontal: Spacing.four,
     minHeight: 48,
-    marginTop: Spacing.two,
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  emptyCtaText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.sansSemiBold },
+  emptyCtaText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.uiBold },
 
   backdrop: { ...(StyleSheet.absoluteFill as object), backgroundColor: 'rgba(2,6,16,0.6)' },
   sheet: {

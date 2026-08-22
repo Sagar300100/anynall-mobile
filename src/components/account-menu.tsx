@@ -9,20 +9,21 @@ import { Children, Fragment, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 
 const DANGER = '#E5484D';
 const PRESSED_BG = 'rgba(120,150,210,0.07)';
+// Glass card recipe (design-language §3): white 5% fill + white hairline.
+const GLASS_BG = 'rgba(255,255,255,0.05)';
 
 /** Rounded surface that renders its children separated by inset hairlines. */
 export function MenuGroup({ children }: { children: ReactNode }) {
-  const c = useBrandColors();
   const items = Children.toArray(children).filter(Boolean);
   return (
-    <View style={[styles.group, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+    <View style={[styles.group, { backgroundColor: GLASS_BG, borderColor: Brand.hairlineWhite }]}>
       {items.map((child, i) => (
         <Fragment key={i}>
-          {i > 0 && <View style={[styles.divider, { backgroundColor: c.border }]} />}
+          {i > 0 && <View style={[styles.divider, { backgroundColor: Brand.hairlineWhite }]} />}
           {child}
         </Fragment>
       ))}
@@ -99,11 +100,11 @@ export function CardRow({
       accessibilityState={{ busy: loading }}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: c.cardBackground, borderColor: c.border },
-        pressed && { backgroundColor: 'rgba(120,150,210,0.10)' },
+        { backgroundColor: GLASS_BG, borderColor: Brand.hairlineWhite },
+        pressed && { backgroundColor: 'rgba(255,255,255,0.09)' },
       ]}
     >
-      <View style={[styles.cardIcon, { backgroundColor: c.backgroundElement, borderColor: c.border }]}>
+      <View style={[styles.cardIcon, { backgroundColor: Brand.ink800, borderColor: Brand.hairline }]}>
         <Ionicons name={icon} size={19} color={c.primary} />
       </View>
       <View style={styles.text}>
@@ -135,7 +136,7 @@ export function SignOutRow({ onPress, busy = false }: { onPress: () => void; bus
       style={({ pressed }) => [
         styles.group,
         styles.signOut,
-        { backgroundColor: c.cardBackground },
+        { backgroundColor: GLASS_BG },
         pressed && { backgroundColor: 'rgba(229,72,77,0.06)' },
       ]}
     >
@@ -174,8 +175,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   text: { flex: 1, gap: 1 },
-  label: { fontSize: 14.5, fontFamily: Fonts.sansSemiBold },
-  support: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 16 },
+  label: { fontSize: 14.5, fontFamily: Fonts.uiSemiBold },
+  support: { fontSize: 12, fontFamily: Fonts.ui, lineHeight: 16 },
   signOut: { borderColor: 'rgba(229,72,77,0.28)' },
   card: {
     flexDirection: 'row',
@@ -195,5 +196,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardLabel: { fontSize: 14.5, fontFamily: Fonts.sansSemiBold },
+  cardLabel: { fontSize: 14.5, fontFamily: Fonts.uiSemiBold },
 });

@@ -17,12 +17,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Linking,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,8 +32,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Field, FormError, PrimaryButton, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { Field, FormError, useBrandColors } from '@/components/ui/form';
+import { Brand, CtaGradientShell, Fonts, Spacing } from '@/constants/theme';
 import {
   cancelTotpEnrollment,
   completeTotpEnrollment,
@@ -168,17 +172,19 @@ export default function TwoFactorScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Two-factor authentication</Text>
         {enrolled && (
           <View style={[styles.onBadge, { borderColor: 'rgba(74,222,128,0.4)' }]}>
@@ -212,7 +218,7 @@ export default function TwoFactorScreen() {
 
           {/* ── Stale-session recovery (password accounts) ── */}
           {reauthFor && (
-            <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.borderStrong }]}>
+            <View style={[styles.card, { borderColor: 'rgba(74,143,229,0.32)' }]}>
               <Text style={[styles.cardTitle, { color: c.text }]}>Confirm it’s you</Text>
               <Text style={[styles.body, { color: c.textSecondary }]}>
                 Security changes need a fresh check — enter your password to continue.
@@ -226,11 +232,10 @@ export default function TwoFactorScreen() {
                 textContentType="password"
                 leftIcon="lock-closed-outline"
               />
-              <PrimaryButton
-                title="Confirm"
+              <GradientCTA
+                title={busy ? 'Confirming…' : 'Confirm'}
                 onPress={submitReauth}
-                loading={busy}
-                disabled={!reauthPassword}
+                disabled={busy || !reauthPassword}
               />
             </View>
           )}
@@ -241,25 +246,38 @@ export default function TwoFactorScreen() {
               {enrolled ? (
                 <>
                   {listEnrolledFactors().map((f) => (
-                    <View
-                      key={f.uid}
-                      style={[styles.factorRow, { backgroundColor: c.cardBackground, borderColor: c.border }]}
-                    >
+                    <View key={f.uid} style={styles.factorRow}>
                       <Ionicons name="shield-checkmark" size={18} color="#4ade80" />
                       <Text style={[styles.factorLabel, { color: c.text }]}>{f.label}</Text>
                     </View>
                   ))}
-                  <PrimaryButton title="Turn off 2FA" variant="ghost" onPress={confirmTurnOff} loading={busy} />
+                  <PressScale
+                    onPress={confirmTurnOff}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Turn off 2FA"
+                    style={styles.ghostBtn}
+                  >
+                    {busy ? (
+                      <ActivityIndicator size="small" color={c.text} />
+                    ) : (
+                      <Text style={styles.ghostBtnText}>Turn off 2FA</Text>
+                    )}
+                  </PressScale>
                 </>
               ) : (
-                <PrimaryButton title="Enable 2FA" onPress={beginEnroll} loading={busy} />
+                <GradientCTA
+                  title={busy ? 'Starting…' : 'Enable 2FA'}
+                  onPress={beginEnroll}
+                  disabled={busy}
+                />
               )}
             </View>
           )}
 
           {/* ── Setup flow ── */}
           {mode === 'setup' && (
-            <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+            <View style={styles.card}>
               <Text style={[styles.cardTitle, { color: c.text }]}>Set up your authenticator</Text>
 
               <View style={styles.step}>
@@ -268,7 +286,7 @@ export default function TwoFactorScreen() {
                   Add Any&All to your authenticator app:
                 </Text>
               </View>
-              <Pressable
+              <PressScale
                 onPress={() => {
                   Linking.openURL(otpauthUrl).catch(() =>
                     setError(
@@ -278,23 +296,27 @@ export default function TwoFactorScreen() {
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Open authenticator app"
-                style={({ pressed }) => [
-                  styles.openBtn,
-                  { backgroundColor: c.cta, opacity: pressed ? 0.8 : 1 },
-                ]}
+                style={styles.openBtn}
               >
-                <Ionicons name="open-outline" size={16} color={c.ctaText} />
-                <Text style={[styles.openBtnText, { color: c.ctaText }]}>
-                  Open authenticator app
-                </Text>
-              </Pressable>
+                <LinearGradient
+                  colors={[...CtaGradientShell]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.openBtnFill}
+                >
+                  <Ionicons name="open-outline" size={16} color="#FFFFFF" />
+                  <Text style={[styles.openBtnText, { color: '#FFFFFF' }]}>
+                    Open authenticator app
+                  </Text>
+                </LinearGradient>
+              </PressScale>
 
               <Text style={[styles.keyLabel, { color: c.textFaint }]}>
                 Setting up on another device? Enter this key there (long-press to copy):
               </Text>
               <Text
                 selectable
-                style={[styles.secret, { color: c.text, backgroundColor: c.backgroundElement, borderColor: c.border }]}
+                style={[styles.secret, { color: c.text, backgroundColor: 'rgba(255,255,255,0.05)', borderColor: Brand.hairlineWhite }]}
               >
                 {secretKey}
               </Text>
@@ -316,37 +338,37 @@ export default function TwoFactorScreen() {
                 accessibilityLabel="6-digit verification code"
                 style={[
                   styles.codeInput,
-                  { backgroundColor: c.backgroundElement, borderColor: c.border, color: c.text },
+                  { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: Brand.hairlineWhite, color: c.text },
                 ]}
               />
 
-              <PrimaryButton
-                title="Verify & turn on"
+              <GradientCTA
+                title={busy ? 'Verifying…' : 'Verify & turn on'}
                 onPress={verifyEnroll}
-                loading={busy}
-                disabled={code.trim().length !== 6}
+                disabled={busy || code.trim().length !== 6}
               />
-              <Pressable
+              <PressScale
                 onPress={leaveSetup}
                 disabled={busy}
                 accessibilityRole="button"
                 accessibilityLabel="Cancel setup"
-                style={({ pressed }) => [styles.cancel, { opacity: pressed ? 0.6 : 1 }]}
+                style={styles.cancel}
               >
                 <Text style={[styles.cancelText, { color: c.textSecondary }]}>Cancel</Text>
-              </Pressable>
+              </PressScale>
             </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 function StepDot({ n }: { n: number }) {
   const c = useBrandColors();
   return (
-    <View style={[dotStyles.dot, { backgroundColor: 'rgba(46,107,255,0.14)' }]}>
+    <View style={[dotStyles.dot, { backgroundColor: 'rgba(30,111,255,0.14)' }]}>
       <Text style={[dotStyles.dotText, { color: c.primary }]}>{n}</Text>
     </View>
   );
@@ -354,10 +376,11 @@ function StepDot({ n }: { n: number }) {
 
 const dotStyles = StyleSheet.create({
   dot: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  dotText: { fontSize: 12, fontFamily: Fonts.sansSemiBold },
+  dotText: { fontSize: 12, fontFamily: Fonts.uiSemiBold },
 });
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   flex: { flex: 1 },
   topBar: {
@@ -369,12 +392,12 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 18, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 18, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   onBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  onBadgeText: { fontSize: 10.5, fontFamily: Fonts.sansSemiBold, color: '#4ade80' },
+  onBadgeText: { fontSize: 10.5, fontFamily: Fonts.uiSemiBold, color: '#4ade80' },
 
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.three },
-  body: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 21 },
+  body: { fontSize: 14, fontFamily: Fonts.ui, lineHeight: 21 },
 
   okBox: {
     flexDirection: 'row',
@@ -385,7 +408,7 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     backgroundColor: 'rgba(74,222,128,0.08)',
   },
-  okText: { flex: 1, fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
+  okText: { flex: 1, fontSize: 13, fontFamily: Fonts.ui, lineHeight: 19 },
 
   actions: { gap: Spacing.two },
   factorRow: {
@@ -393,26 +416,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two + Spacing.one,
     borderWidth: 1,
-    borderRadius: 14,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
     paddingHorizontal: Spacing.three,
     minHeight: 52,
   },
-  factorLabel: { flex: 1, fontSize: 14.5, fontFamily: Fonts.sansMedium },
+  factorLabel: { flex: 1, fontSize: 14.5, fontFamily: Fonts.uiMedium },
 
-  card: { borderWidth: 1, borderRadius: 16, padding: Spacing.three + Spacing.one, gap: Spacing.two + Spacing.one },
-  cardTitle: { fontSize: 16, fontFamily: Fonts.sansSemiBold },
+  card: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: Spacing.three + Spacing.one,
+    gap: Spacing.two + Spacing.one,
+  },
+  cardTitle: { fontSize: 16, fontFamily: Fonts.uiSemiBold },
   step: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   stepText: { flex: 1 },
-  openBtn: {
+  openBtn: { borderRadius: 13 },
+  openBtnFill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.two,
-    borderRadius: 999,
+    borderRadius: 13,
     minHeight: 46,
+    overflow: 'hidden',
   },
-  openBtnText: { fontSize: 14, fontFamily: Fonts.sansMedium },
-  keyLabel: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 17 },
+  openBtnText: { fontSize: 14, fontFamily: Fonts.uiBold },
+  keyLabel: { fontSize: 12, fontFamily: Fonts.ui, lineHeight: 17 },
   secret: {
     fontFamily: Fonts.mono,
     fontSize: 13,
@@ -431,5 +465,16 @@ const styles = StyleSheet.create({
     letterSpacing: 10,
   },
   cancel: { alignSelf: 'center', paddingVertical: Spacing.one, minHeight: 40, justifyContent: 'center' },
-  cancelText: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
+  cancelText: { fontSize: 13.5, fontFamily: Fonts.uiMedium },
+
+  ghostBtn: {
+    borderWidth: 1,
+    borderColor: Brand.hairline,
+    borderRadius: 13,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  ghostBtnText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.uiBold },
 });

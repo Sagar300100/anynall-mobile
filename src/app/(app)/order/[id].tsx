@@ -11,10 +11,10 @@ import { doc, getDoc } from 'firebase/firestore';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   ActivityIndicator,
   Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,10 +23,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { GlassCard } from '@/components/brand/glass-card';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { PayNowButton, orderAwaitingPayment } from '@/components/pay-now';
 import { UnboxingRecorder } from '@/components/unboxing-recorder';
-import { PrimaryButton, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { useBrandColors } from '@/components/ui/form';
+import { Brand, CtaGradientShell, Fonts, Shadows, Spacing } from '@/constants/theme';
 import { getMyOrder, listMyOrders, type BuyerOrder } from '@/lib/api';
 import { humanizeStatus } from '@/lib/commerce';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
@@ -250,17 +255,19 @@ export default function BuyerOrderDetailScreen() {
   const videoPath = savedVideoPath || order?.dispute?.videoPath || null;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/orders'))}
           accessibilityRole="button"
           accessibilityLabel="Back to orders"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Order details</Text>
       </View>
 
@@ -280,10 +287,10 @@ export default function BuyerOrderDetailScreen() {
           {!!error && <Text style={[styles.errorText, { color: c.danger }]}>{error}</Text>}
 
           {/* ── Order summary ── */}
-          <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+          <View style={styles.card}>
             <Text style={[styles.productTitle, { color: c.text }]}>{order.productTitle}</Text>
             <View style={styles.metaRow}>
-              <Text style={[styles.amount, { color: c.text }]}>
+              <Text style={styles.amount}>
                 {order.purchaseType === 'giveaway' && !(order.amount > 0)
                   ? 'Giveaway — free'
                   : rupees(order.amount)}
@@ -312,11 +319,9 @@ export default function BuyerOrderDetailScreen() {
                  payment. Countdown + checkout live in PayNowButton. */}
           {orderAwaitingPayment(order) && (
             <>
-              <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>
-                COMPLETE YOUR PAYMENT
-              </Text>
+              <Eyebrow style={styles.sectionLabel}>Complete your payment</Eyebrow>
               <View
-                style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+                style={styles.card}
               >
                 <Text style={[styles.body, { color: c.textSecondary }]}>
                   One unit is reserved for you. Pay before the window ends or the reservation is
@@ -328,25 +333,25 @@ export default function BuyerOrderDetailScreen() {
           )}
 
           {/* ── Shipment ── */}
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>DELIVERY</Text>
-          <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+          <Eyebrow style={styles.sectionLabel}>Delivery</Eyebrow>
+          <View style={styles.card}>
             {!shipment?.awbCode ? (
               order.needsAddress === true ? (
                 // The order exists without a delivery address (giveaway win,
                 // offer accepted before one was saved) — v1: save the profile
                 // address, the seller collects it from there.
-                <Pressable
+                <PressScale
                   onPress={() => router.push('/account/address')}
                   accessibilityRole="button"
                   accessibilityLabel="Add your delivery address so the seller can ship"
-                  style={({ pressed }) => [styles.emptyShip, { opacity: pressed ? 0.7 : 1 }]}
+                  style={styles.emptyShip}
                 >
                   <Ionicons name="location-outline" size={22} color={c.primary} />
                   <Text style={[styles.body, { color: c.textSecondary, flex: 1 }]}>
                     Add your delivery address so the seller can ship.
                   </Text>
                   <Ionicons name="chevron-forward" size={16} color={c.textFaint} />
-                </Pressable>
+                </PressScale>
               ) : (
                 <View style={styles.emptyShip}>
                   <Ionicons name="cube-outline" size={22} color={c.textFaint} />
@@ -396,20 +401,17 @@ export default function BuyerOrderDetailScreen() {
                       </View>
                     )}
                     {!!tracking.trackUrl && (
-                      <Pressable
+                      <PressScale
                         onPress={() => WebBrowser.openBrowserAsync(tracking.trackUrl!).catch(() => {})}
                         accessibilityRole="link"
                         accessibilityLabel="Open the courier's tracking page"
-                        style={({ pressed }) => [
-                          styles.trackBtn,
-                          { borderColor: c.borderStrong, opacity: pressed ? 0.7 : 1 },
-                        ]}
+                        style={[styles.trackBtn, { borderColor: Brand.hairline }]}
                       >
                         <Ionicons name="open-outline" size={14} color={c.primary} />
                         <Text style={[styles.trackBtnText, { color: c.primary }]}>
                           Open courier tracking ↗
                         </Text>
-                      </Pressable>
+                      </PressScale>
                     )}
 
                     {/* ── Timeline ── */}
@@ -456,9 +458,7 @@ export default function BuyerOrderDetailScreen() {
           {/* ── Buyer protection (spec Gap 2) ── */}
           {showProtection && order && (
             <>
-              <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>
-                BUYER PROTECTION
-              </Text>
+              <Eyebrow style={styles.sectionLabel}>Buyer protection</Eyebrow>
 
               {protectionStatus === 'in_window' ? (
                 <ProtectionWindow order={order} onReport={openReport}>
@@ -470,7 +470,7 @@ export default function BuyerOrderDetailScreen() {
                 </ProtectionWindow>
               ) : protectionStatus === 'disputed' ? (
                 <View
-                  style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+                  style={styles.card}
                 >
                   <View style={styles.protTitleRow}>
                     <Ionicons name="alert-circle" size={18} color={WARN} />
@@ -495,7 +495,7 @@ export default function BuyerOrderDetailScreen() {
                 </View>
               ) : protectionStatus === 'released' ? (
                 <View
-                  style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+                  style={styles.card}
                 >
                   <View style={styles.protTitleRow}>
                     <Ionicons name="shield-checkmark" size={18} color={SUCCESS} />
@@ -515,7 +515,7 @@ export default function BuyerOrderDetailScreen() {
                 </View>
               ) : protectionStatus === 'refunded_pending' ? (
                 <View
-                  style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}
+                  style={styles.card}
                 >
                   <View style={styles.protTitleRow}>
                     <Ionicons name="return-down-back" size={18} color={SUCCESS} />
@@ -531,41 +531,41 @@ export default function BuyerOrderDetailScreen() {
           )}
 
           {/* ── Help ── */}
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>NEED HELP?</Text>
+          <Eyebrow style={styles.sectionLabel}>Need help?</Eyebrow>
           <View style={styles.actions}>
             {!!order.showId && (
-              <Pressable
+              <PressScale
                 onPress={messageSeller}
                 disabled={messaging}
                 accessibilityRole="button"
                 accessibilityLabel="Message the seller about this order"
-                style={({ pressed }) => [
-                  styles.actionBtn,
-                  { backgroundColor: c.cta, opacity: pressed || messaging ? 0.75 : 1 },
-                ]}
+                style={[styles.actionBtn, Shadows.cta, messaging && { opacity: 0.75 }]}
               >
-                {messaging ? (
-                  <ActivityIndicator size="small" color={c.ctaText} />
-                ) : (
-                  <>
-                    <Ionicons name="chatbubble-outline" size={15} color={c.ctaText} />
-                    <Text style={[styles.actionText, { color: c.ctaText }]}>Message seller</Text>
-                  </>
-                )}
-              </Pressable>
+                <LinearGradient
+                  colors={[...CtaGradientShell]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.actionFill}
+                >
+                  {messaging ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="chatbubble-outline" size={15} color="#FFFFFF" />
+                      <Text style={[styles.actionText, { color: '#FFFFFF' }]}>Message seller</Text>
+                    </>
+                  )}
+                </LinearGradient>
+              </PressScale>
             )}
-            <Pressable
+            <PressScale
               onPress={() => router.push('/support-chat')}
               accessibilityRole="button"
               accessibilityLabel="Get help from support"
-              style={({ pressed }) => [
-                styles.actionBtn,
-                styles.actionGhost,
-                { borderColor: c.borderStrong, opacity: pressed ? 0.75 : 1 },
-              ]}
+              style={[styles.actionBtn, styles.actionGhost, { borderColor: Brand.hairline }]}
             >
               <Text style={[styles.actionText, { color: c.text }]}>Get support</Text>
-            </Pressable>
+            </PressScale>
           </View>
         </ScrollView>
       ) : (
@@ -583,7 +583,8 @@ export default function BuyerOrderDetailScreen() {
           onFiled={handleFiled}
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -617,7 +618,7 @@ function ProtectionWindow({
 
   return (
     <>
-      <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+      <GlassCard variant="panel" style={styles.cardInner}>
         <View style={styles.protTitleRow}>
           <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
           <Text style={[styles.protTitle, { color: c.text }]}>Payment protection</Text>
@@ -638,23 +639,20 @@ function ProtectionWindow({
             Delivered {shortDate(order.deliveredAt)}
           </Text>
         )}
-      </View>
+      </GlassCard>
 
       {children}
 
       {windowOpen ? (
-        <Pressable
+        <PressScale
           onPress={onReport}
           accessibilityRole="button"
           accessibilityLabel="Report a problem with this order"
-          style={({ pressed }) => [
-            styles.reportBtn,
-            { borderColor: 'rgba(248,113,113,0.45)', opacity: pressed ? 0.7 : 1 },
-          ]}
+          style={[styles.reportBtn, { borderColor: 'rgba(248,113,113,0.45)' }]}
         >
           <Ionicons name="flag-outline" size={15} color={c.danger} />
           <Text style={[styles.reportBtnText, { color: c.danger }]}>Report a problem</Text>
-        </Pressable>
+        </PressScale>
       ) : (
         <Text style={[styles.hint, { color: c.textFaint }]}>
           The 24-hour report window has closed — your payment is being released to the seller.
@@ -714,18 +712,18 @@ function ReportProblemSheet({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.sheetScrim}>
         <View
-          style={[styles.sheet, { backgroundColor: c.backgroundElement, borderColor: c.border }]}
+          style={[styles.sheet, { backgroundColor: Brand.ink800, borderColor: Brand.hairline }]}
         >
           <View style={styles.sheetHead}>
             <Text style={[styles.sheetTitle, { color: c.text }]}>Report a problem</Text>
-            <Pressable
+            <PressScale
               onPress={onClose}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Close the report form"
             >
               <Ionicons name="close" size={20} color={c.textSecondary} />
-            </Pressable>
+            </PressScale>
           </View>
 
           <ScrollView
@@ -741,18 +739,17 @@ function ReportProblemSheet({
             {COMPLAINT_CATEGORIES.map((cat) => {
               const selected = category === cat.value;
               return (
-                <Pressable
+                <PressScale
                   key={cat.value}
                   onPress={() => setCategory(cat.value)}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
                   accessibilityLabel={cat.label}
-                  style={({ pressed }) => [
+                  style={[
                     styles.catRow,
                     {
-                      borderColor: selected ? c.primary : c.border,
+                      borderColor: selected ? c.primary : Brand.hairlineWhite,
                       backgroundColor: selected ? 'rgba(77,184,255,0.08)' : 'transparent',
-                      opacity: pressed ? 0.75 : 1,
                     },
                   ]}
                 >
@@ -765,7 +762,7 @@ function ReportProblemSheet({
                     <Text style={[styles.catLabel, { color: c.text }]}>{cat.label}</Text>
                     <Text style={[styles.catHint, { color: c.textFaint }]}>{cat.hint}</Text>
                   </View>
-                </Pressable>
+                </PressScale>
               );
             })}
 
@@ -779,7 +776,7 @@ function ReportProblemSheet({
               accessibilityLabel="Details about the problem"
               style={[
                 styles.noteInput,
-                { color: c.text, borderColor: c.border, backgroundColor: c.background },
+                { color: c.text, borderColor: Brand.hairlineWhite, backgroundColor: 'rgba(255,255,255,0.05)' },
               ]}
             />
 
@@ -803,11 +800,10 @@ function ReportProblemSheet({
 
             {!!err && <Text style={[styles.errorText, { color: c.danger }]}>{err}</Text>}
 
-            <PrimaryButton
-              title="Submit report"
+            <GradientCTA
+              title={busy ? 'Submitting…' : 'Submit report'}
               onPress={submit}
-              loading={busy}
-              disabled={!category || !videoPath}
+              disabled={busy || !category || !videoPath}
             />
             <Text style={[styles.hint, { color: c.textFaint }]}>
               Filing a report holds your payment until it’s resolved. You can file one report per
@@ -821,6 +817,7 @@ function ReportProblemSheet({
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -831,26 +828,46 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 20, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.two, padding: Spacing.four },
-  body: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 21 },
-  hint: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 17 },
-  errorText: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
-  sectionLabel: { fontSize: 11.5, fontFamily: Fonts.sansMedium, letterSpacing: 1.1, marginLeft: 4, marginBottom: -Spacing.one },
+  body: { fontSize: 14, fontFamily: Fonts.ui, lineHeight: 21 },
+  hint: { fontSize: 12, fontFamily: Fonts.ui, lineHeight: 17 },
+  errorText: { fontSize: 13, fontFamily: Fonts.ui, lineHeight: 19 },
+  sectionLabel: { marginLeft: 4, marginBottom: -Spacing.one },
 
   scroll: { padding: Spacing.three, paddingTop: Spacing.one, gap: Spacing.two + Spacing.one, paddingBottom: 90 },
-  card: { borderWidth: 1, borderRadius: 16, padding: Spacing.three + Spacing.one, gap: Spacing.two },
+  card: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: Spacing.three + Spacing.one,
+    gap: Spacing.two,
+  },
+  // Inner layout for GlassCard panels (the card paints itself).
+  cardInner: { padding: Spacing.three + Spacing.one, gap: Spacing.two },
 
-  productTitle: { fontSize: 16.5, fontFamily: Fonts.sansSemiBold, lineHeight: 22 },
+  productTitle: { fontSize: 16.5, fontFamily: Fonts.uiSemiBold, lineHeight: 22 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  amount: { flex: 1, fontSize: 18, fontFamily: Fonts.sansSemiBold },
-  meta: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
+  amount: { flex: 1, fontSize: 18, fontFamily: Fonts.uiExtraBold, color: Brand.blueSky },
+  meta: { fontSize: 13, fontFamily: Fonts.ui, lineHeight: 19 },
   pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  pillText: { fontSize: 11, fontFamily: Fonts.sansSemiBold },
+  pillText: { fontSize: 11, fontFamily: Fonts.uiSemiBold },
 
   emptyShip: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.two },
   awbRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  courier: { flex: 1, fontSize: 14.5, fontFamily: Fonts.sansSemiBold },
+  actionFill: {
+    flex: 1,
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    borderRadius: 13,
+    minHeight: 46,
+    overflow: 'hidden',
+  },
+  courier: { flex: 1, fontSize: 14.5, fontFamily: Fonts.uiSemiBold },
   awb: { fontFamily: Fonts.mono, fontSize: 13.5 },
   trackLoading: { paddingVertical: Spacing.two },
 
@@ -860,17 +877,17 @@ const styles = StyleSheet.create({
     padding: Spacing.two + Spacing.one,
     backgroundColor: 'rgba(124,224,168,0.07)',
   },
-  statusNow: { fontSize: 13, fontFamily: Fonts.sansMedium, lineHeight: 18 },
+  statusNow: { fontSize: 13, fontFamily: Fonts.uiSemiBold, lineHeight: 18 },
   trackBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.one + 2,
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 13,
     minHeight: 42,
   },
-  trackBtnText: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  trackBtnText: { fontSize: 13, fontFamily: Fonts.uiSemiBold },
 
   timeline: { marginTop: Spacing.one },
   timelineRow: { flexDirection: 'row', gap: Spacing.two + Spacing.one },
@@ -878,8 +895,8 @@ const styles = StyleSheet.create({
   timelineDot: { width: 9, height: 9, borderRadius: 5, marginTop: 4 },
   timelineLine: { flex: 1, width: 2, marginVertical: 2 },
   timelineText: { flex: 1, paddingBottom: Spacing.three, gap: 1 },
-  timelineActivity: { fontSize: 13.5, fontFamily: Fonts.sansMedium, lineHeight: 19 },
-  timelineMeta: { fontSize: 11.5, fontFamily: Fonts.sans },
+  timelineActivity: { fontSize: 13.5, fontFamily: Fonts.uiSemiBold, lineHeight: 19 },
+  timelineMeta: { fontSize: 11.5, fontFamily: Fonts.ui },
 
   actions: { flexDirection: 'row', gap: Spacing.two },
   actionBtn: {
@@ -888,25 +905,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.two,
-    borderRadius: 999,
+    borderRadius: 13,
     minHeight: 46,
   },
   actionGhost: { backgroundColor: 'transparent', borderWidth: 1 },
-  actionText: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
+  actionText: { fontSize: 13.5, fontFamily: Fonts.uiBold },
 
   // ── Buyer protection ──
   protTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  protTitle: { flex: 1, fontSize: 15, fontFamily: Fonts.sansSemiBold, lineHeight: 20 },
+  protTitle: { flex: 1, fontSize: 15, fontFamily: Fonts.uiSemiBold, lineHeight: 20 },
   reportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.two,
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 13,
     minHeight: 46,
   },
-  reportBtnText: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
+  reportBtnText: { fontSize: 13.5, fontFamily: Fonts.uiBold },
 
   // ── Report-a-problem sheet ──
   sheetScrim: {
@@ -915,15 +932,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     borderWidth: 1,
     padding: Spacing.three,
     paddingBottom: Spacing.five,
     gap: Spacing.two,
   },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sheetTitle: { fontSize: 20, fontFamily: Fonts.sansSemiBold },
+  sheetTitle: { fontSize: 20, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   sheetScroll: { maxHeight: 520 },
   sheetScrollInner: { gap: Spacing.two },
   catRow: {
@@ -936,15 +953,15 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two + Spacing.one,
   },
   catText: { flex: 1, gap: 1 },
-  catLabel: { fontSize: 14, fontFamily: Fonts.sansMedium },
-  catHint: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 16 },
+  catLabel: { fontSize: 14, fontFamily: Fonts.uiSemiBold },
+  catHint: { fontSize: 12, fontFamily: Fonts.ui, lineHeight: 16 },
   noteInput: {
     borderWidth: 1,
     borderRadius: 12,
     minHeight: 74,
     padding: Spacing.three,
     fontSize: 14,
-    fontFamily: Fonts.sans,
+    fontFamily: Fonts.ui,
     textAlignVertical: 'top',
   },
   videoState: {
@@ -955,5 +972,5 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: Spacing.two + Spacing.one,
   },
-  videoStateText: { flex: 1, fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  videoStateText: { flex: 1, fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
 });

@@ -10,14 +10,17 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { SellerHub } from '@/components/seller-hub';
 import { SellerIntro } from '@/components/seller-intro';
 import { SellerWizard } from '@/components/seller-wizard';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { getSellerOnboarding, isOnboardingDone, type SellerOnboardingState } from '@/lib/seller';
 import { useSession } from '@/lib/session';
@@ -88,22 +91,24 @@ export default function SellScreen() {
     status === 'member' && !loading && !error && !!state && (showHub || isOnboardingDone(state));
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       {!inFlow && !onHub && (
       <View style={styles.topBar}>
-        <Text style={[styles.topTitle, { color: c.text }]}>Seller Hub</Text>
-        <Pressable
+        <View style={styles.topTitleBlock}>
+          <Eyebrow>Sell on Any&All</Eyebrow>
+          <Text style={[styles.topTitle, { color: c.text }]}>Seller Hub</Text>
+        </View>
+        <PressScale
           onPress={() => router.push('/settings')}
           accessibilityRole="button"
           accessibilityLabel="Settings"
           hitSlop={6}
-          style={({ pressed }) => [
-            styles.settingsBtn,
-            { backgroundColor: c.cardBackground, borderColor: c.border, opacity: pressed ? 0.7 : 1 },
-          ]}
+          style={styles.settingsBtn}
         >
-          <Ionicons name="settings-outline" size={18} color={c.textSecondary} />
-        </Pressable>
+          <Ionicons name="settings-outline" size={18} color={Brand.slate400} />
+        </PressScale>
       </View>
       )}
 
@@ -122,16 +127,17 @@ export default function SellScreen() {
         <View style={styles.center}>
           <Ionicons name="cloud-offline-outline" size={40} color={c.textSecondary} />
           <Text style={[styles.errorTitle, { color: c.text }]}>Couldn’t load your seller status</Text>
-          <Pressable
+          <PressScale
             onPress={() => {
               setLoading(true);
               load();
             }}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.retryBtn, { borderColor: c.borderStrong, opacity: pressed ? 0.7 : 1 }]}
+            accessibilityLabel="Retry"
+            style={styles.retryBtn}
           >
             <Text style={[styles.retryText, { color: c.text }]}>Retry</Text>
-          </Pressable>
+          </PressScale>
         </View>
       ) : showHub || isOnboardingDone(state) ? (
         <SellerHub state={state} onRefresh={() => load()} />
@@ -154,11 +160,13 @@ export default function SellScreen() {
           onExit={() => setEntered(false)}
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -168,19 +176,22 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.one,
     minHeight: 46,
   },
-  topTitle: { flex: 1, fontSize: 24, fontFamily: Fonts.sansSemiBold },
+  topTitleBlock: { flex: 1, gap: Spacing.one },
+  topTitle: { fontSize: 24, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   settingsBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.two, padding: Spacing.five },
-  errorTitle: { fontSize: 16, fontFamily: Fonts.sansSemiBold },
-  retryBtn: { borderWidth: 1, borderRadius: 999, paddingHorizontal: Spacing.four, paddingVertical: 10 },
-  retryText: { fontSize: 14, fontFamily: Fonts.sansMedium },
+  errorTitle: { fontSize: 16, fontFamily: Fonts.uiSemiBold },
+  retryBtn: { borderWidth: 1, borderColor: Brand.hairline, borderRadius: 13, paddingHorizontal: Spacing.four, paddingVertical: 10 },
+  retryText: { fontSize: 14, fontFamily: Fonts.uiMedium },
 
   hubScroll: { padding: Spacing.three, gap: Spacing.three },
   hubHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
@@ -192,8 +203,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  storeName: { fontSize: 19, fontFamily: Fonts.sansSemiBold },
-  storeHandle: { fontSize: 13, fontFamily: Fonts.sans },
+  storeName: { fontSize: 19, fontFamily: Fonts.uiSemiBold },
+  storeHandle: { fontSize: 13, fontFamily: Fonts.ui },
   statusCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -202,8 +213,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: Spacing.three,
   },
-  statusTitle: { fontSize: 14.5, fontFamily: Fonts.sansSemiBold },
-  statusBody: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 17.5 },
+  statusTitle: { fontSize: 14.5, fontFamily: Fonts.uiSemiBold },
+  statusBody: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 17.5 },
   webRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -212,6 +223,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: Spacing.three,
   },
-  webRowTitle: { fontSize: 14.5, fontFamily: Fonts.sansSemiBold },
-  webRowBody: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 17 },
+  webRowTitle: { fontSize: 14.5, fontFamily: Fonts.uiSemiBold },
+  webRowBody: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 17 },
 });

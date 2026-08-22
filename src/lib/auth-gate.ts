@@ -24,7 +24,13 @@ export type GatedAction =
   | 'inbox'
   | 'orders'
   | 'sell'
-  | 'profile';
+  | 'profile'
+  // Guest-flow gates (spec §6.2): home is browsable signed-out, everything
+  // beyond it asks for an account first.
+  | 'watch'
+  | 'search'
+  | 'browse'
+  | 'notifications';
 
 /** Second person, specific, and honest about why the account is needed. */
 export const GATE_REASON: Record<GatedAction, string> = {
@@ -38,6 +44,10 @@ export const GATE_REASON: Record<GatedAction, string> = {
   orders: 'Sign in to see your orders and track deliveries.',
   sell: 'Sign in to start selling on Any&All.',
   profile: 'Sign in to manage your account.',
+  watch: 'Sign in to join live shows — bidding, buying and chat all happen inside the room.',
+  search: 'Sign in to search live shows, products and sellers.',
+  browse: 'Sign in to explore categories and the full catalog.',
+  notifications: 'Sign in to see your notifications.',
 };
 
 /**

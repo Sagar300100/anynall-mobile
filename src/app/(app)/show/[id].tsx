@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,13 +13,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  DisplayText,
-  Eyebrow,
-  PrimaryButton,
-  useBrandColors,
-} from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { FadeUp } from '@/components/brand/fade-up';
+import { GlassCard } from '@/components/brand/glass-card';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { LivePulseDot } from '@/components/brand/live-pulse-dot';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
+import { DisplayText, useBrandColors } from '@/components/ui/form';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
 import { cancelShowReminder, isReminderSet, scheduleShowReminder } from '@/lib/reminders';
 import { markShowTapped } from '@/lib/stream';
@@ -83,9 +84,9 @@ export default function ShowDetailScreen() {
       } else if (code === 'TOO_LATE') {
         Alert.alert('Starting too soon', 'This show starts in the next few minutes — jump in from Live instead.');
       } else if (code === 'BAD_TIME') {
-        Alert.alert('No start time yet', 'This show hasn\u2019t been given a start time, so there\u2019s nothing to remind you about.');
+        Alert.alert('No start time yet', 'This show hasn’t been given a start time, so there’s nothing to remind you about.');
       } else {
-        Alert.alert('Couldn\u2019t set the reminder', 'Please try again.');
+        Alert.alert('Couldn’t set the reminder', 'Please try again.');
       }
     } finally {
       setRemindBusy(false);
@@ -116,18 +117,31 @@ export default function ShowDetailScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.safe, styles.center, { backgroundColor: c.background }]}>
-        <ActivityIndicator size="large" color={c.primary} />
-      </SafeAreaView>
+      <View style={styles.root}>
+        <PageAtmosphere />
+        <SafeAreaView style={[styles.safe, styles.center]}>
+          <ActivityIndicator size="large" color={Brand.blueSky} />
+        </SafeAreaView>
+      </View>
     );
   }
 
   if (!show) {
     return (
-      <SafeAreaView style={[styles.safe, styles.center, { backgroundColor: c.background }]}>
-        <DisplayText size={26}>Show not found.</DisplayText>
-        <PrimaryButton title="Go back" variant="ghost" onPress={() => router.back()} />
-      </SafeAreaView>
+      <View style={styles.root}>
+        <PageAtmosphere />
+        <SafeAreaView style={[styles.safe, styles.center]}>
+          <DisplayText size={26}>Show not found.</DisplayText>
+          <PressScale
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            style={styles.ghostBtn}
+          >
+            <Text style={styles.ghostBtnText}>Go back</Text>
+          </PressScale>
+        </SafeAreaView>
+      </View>
     );
   }
 
@@ -144,148 +158,174 @@ export default function ShowDetailScreen() {
       : 'Schedule to be announced';
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.heroWrap}>
-          {show.thumbnail ? (
-            <Image source={{ uri: show.thumbnail }} style={styles.hero} contentFit="cover" />
-          ) : (
-            <View style={[styles.hero, { backgroundColor: c.backgroundSelected }]} />
-          )}
-          <Pressable
-            onPress={() => router.back()}
-            style={[styles.backBtn, { backgroundColor: 'rgba(5,10,24,0.65)' }]}
-            hitSlop={8}
-          >
-            <Ionicons name="chevron-back" size={22} color={c.text} />
-          </Pressable>
-          {show.isLive && (
-            <View style={[styles.liveBadge, { backgroundColor: c.live }]}>
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.body}>
-          <Eyebrow>{`${show.category}${show.subcategory ? ` · ${show.subcategory}` : ''}`}</Eyebrow>
-          <DisplayText size={30}>{show.name}</DisplayText>
-
-          <View style={styles.sellerRow}>
-            <Pressable
-              onPress={() =>
-                show.ownerUid &&
-                router.push({
-                  pathname: '/user/[username]',
-                  params: { username: show.seller, uid: show.ownerUid },
-                })
-              }
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <View style={styles.heroWrap}>
+            {show.thumbnail ? (
+              <Image source={{ uri: show.thumbnail }} style={styles.hero} contentFit="cover" />
+            ) : (
+              <View style={[styles.hero, { backgroundColor: Brand.ink600 }]} />
+            )}
+            <PressScale
+              onPress={() => router.back()}
               accessibilityRole="button"
-              accessibilityLabel={`View @${show.seller}'s profile`}
-              hitSlop={6}
-              style={({ pressed }) => [styles.sellerLink, pressed && { opacity: 0.7 }]}
+              accessibilityLabel="Back"
+              style={[styles.backBtn, { backgroundColor: 'rgba(2,8,20,0.65)' }]}
+              hitSlop={8}
             >
-              <Ionicons name="person-circle-outline" size={22} color={c.primary} />
-              <Text style={[styles.seller, { color: c.text }]}>@{show.seller}</Text>
-            </Pressable>
-            {canMessageSeller && (
-              <Pressable
-                onPress={messageSeller}
-                disabled={messaging}
-                hitSlop={6}
-                style={[styles.msgBtn, { borderColor: c.borderStrong, opacity: messaging ? 0.6 : 1 }]}
-              >
-                <Ionicons name="chatbubble-outline" size={13} color={c.primary} />
-                <Text style={[styles.msgBtnText, { color: c.text }]}>Message</Text>
-              </Pressable>
+              <Ionicons name="chevron-back" size={22} color={c.text} />
+            </PressScale>
+            {show.isLive && (
+              <View style={[styles.liveBadge, { backgroundColor: Brand.live }]}>
+                <LivePulseDot color="#FFFFFF" size={6} />
+                <Text style={styles.liveText}>LIVE</Text>
+              </View>
             )}
-            {show.sellerRating !== null && (
-              <>
-                <Ionicons name="star" size={13} color={c.primary} style={{ marginLeft: 'auto' }} />
-                <Text style={[styles.rating, { color: c.textSecondary }]}>
-                  {show.sellerRating.toFixed(1)}
+          </View>
+
+          <View style={styles.body}>
+            <FadeUp index={0} style={styles.titleBlock}>
+              <Eyebrow>{`${show.category}${show.subcategory ? ` · ${show.subcategory}` : ''}`}</Eyebrow>
+              <DisplayText size={30}>{show.name}</DisplayText>
+            </FadeUp>
+
+            <FadeUp index={1} style={styles.midBlock}>
+              <View style={styles.sellerRow}>
+                <PressScale
+                  onPress={() =>
+                    show.ownerUid &&
+                    router.push({
+                      pathname: '/user/[username]',
+                      params: { username: show.seller, uid: show.ownerUid },
+                    })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`View @${show.seller}'s profile`}
+                  hitSlop={6}
+                  style={styles.sellerLink}
+                >
+                  <Ionicons name="person-circle-outline" size={22} color={Brand.blueSky} />
+                  <Text style={[styles.seller, { color: c.text }]}>@{show.seller}</Text>
+                </PressScale>
+                {canMessageSeller && (
+                  <PressScale
+                    onPress={messageSeller}
+                    disabled={messaging}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Message @${show.seller}`}
+                    hitSlop={6}
+                    style={[styles.msgBtn, { opacity: messaging ? 0.6 : 1 }]}
+                  >
+                    <Ionicons name="chatbubble-outline" size={13} color={Brand.blueSky} />
+                    <Text style={[styles.msgBtnText, { color: c.text }]}>Message</Text>
+                  </PressScale>
+                )}
+                {show.sellerRating !== null && (
+                  <>
+                    <Ionicons name="star" size={13} color={Brand.blueSky} style={{ marginLeft: 'auto' }} />
+                    <Text style={[styles.rating, { color: Brand.slate400 }]}>
+                      {show.sellerRating.toFixed(1)}
+                    </Text>
+                  </>
+                )}
+              </View>
+              {!!messageErr && (
+                <Text style={{ color: Brand.dangerSoft, fontSize: 12, fontFamily: Fonts.ui }}>
+                  {messageErr}
                 </Text>
-              </>
-            )}
-          </View>
-          {!!messageErr && (
-            <Text style={{ color: c.danger, fontSize: 12, fontFamily: Fonts.sans }}>
-              {messageErr}
-            </Text>
-          )}
+              )}
 
-          <View
-            style={[styles.infoCard, { backgroundColor: c.cardBackground, borderColor: c.border }]}
-          >
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, { color: c.textSecondary }]}>WHEN</Text>
-              <Text style={[styles.infoValue, { color: show.isLive ? c.live : c.text }]}>
-                {when}
-              </Text>
-            </View>
-            <View style={[styles.hairline, { backgroundColor: c.border }]} />
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, { color: c.textSecondary }]}>FORMAT</Text>
-              <Text style={[styles.infoValue, { color: c.text }]}>{show.sellingFormat}</Text>
-            </View>
-            {show.shippedFrom !== 'N/A' && (
-              <>
-                <View style={[styles.hairline, { backgroundColor: c.border }]} />
+              <GlassCard style={styles.infoCard}>
                 <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: c.textSecondary }]}>SHIPS FROM</Text>
-                  <Text style={[styles.infoValue, { color: c.text }]}>{show.shippedFrom}</Text>
+                  <Text style={[styles.infoLabel, { color: Brand.slate400 }]}>WHEN</Text>
+                  <View style={styles.infoValueRow}>
+                    {show.isLive && <LivePulseDot color={Brand.live} size={7} />}
+                    <Text style={[styles.infoValue, { color: show.isLive ? Brand.live : c.text }]}>
+                      {when}
+                    </Text>
+                  </View>
                 </View>
-              </>
-            )}
+                <View style={[styles.hairline, { backgroundColor: Brand.hairlineWhite }]} />
+                <View style={styles.infoRow}>
+                  <Text style={[styles.infoLabel, { color: Brand.slate400 }]}>FORMAT</Text>
+                  <Text style={[styles.infoValue, { color: c.text }]}>{show.sellingFormat}</Text>
+                </View>
+                {show.shippedFrom !== 'N/A' && (
+                  <>
+                    <View style={[styles.hairline, { backgroundColor: Brand.hairlineWhite }]} />
+                    <View style={styles.infoRow}>
+                      <Text style={[styles.infoLabel, { color: Brand.slate400 }]}>SHIPS FROM</Text>
+                      <Text style={[styles.infoValue, { color: c.text }]}>{show.shippedFrom}</Text>
+                    </View>
+                  </>
+                )}
+              </GlassCard>
+
+              {show.tags.length > 0 && (
+                <View style={styles.tagRow}>
+                  {show.tags.map((t) => (
+                    <View key={t} style={styles.tag}>
+                      <Text style={[styles.tagText, { color: Brand.slate400 }]}>{t}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </FadeUp>
+
+            <FadeUp index={2}>
+              {show.isLive ? (
+                <GradientCTA
+                  title="Join live show"
+                  onPress={() => {
+                    // The whole join starts at the tap and overlaps the
+                    // transition; the room screen adopts it mid-flight.
+                    markShowTapped(String(show.id));
+                    startJoin(String(show.id));
+                    router.push({ pathname: '/live/[id]', params: { id: String(show.id) } });
+                  }}
+                />
+              ) : show.replayUrl ? (
+                <GradientCTA
+                  title="Watch replay"
+                  onPress={() =>
+                    router.push({
+                      pathname: '/replay',
+                      params: { url: show.replayUrl!, title: show.name },
+                    })
+                  }
+                />
+              ) : (
+                // REAL local reminder — a scheduled device notification ~10 min
+                // before the show. Device-local by design: no push backend exists.
+                <PressScale
+                  onPress={toggleReminder}
+                  disabled={remindBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel={reminded ? 'Cancel reminder' : 'Remind me'}
+                  accessibilityState={{ disabled: remindBusy }}
+                  style={styles.ghostBtn}
+                >
+                  {remindBusy ? (
+                    <ActivityIndicator size="small" color={c.text} />
+                  ) : (
+                    <Text style={styles.ghostBtnText}>
+                      {reminded ? 'Reminder set ✓ · tap to cancel' : 'Remind me'}
+                    </Text>
+                  )}
+                </PressScale>
+              )}
+            </FadeUp>
           </View>
-
-          {show.tags.length > 0 && (
-            <View style={styles.tagRow}>
-              {show.tags.map((t) => (
-                <View key={t} style={[styles.tag, { borderColor: c.border }]}>
-                  <Text style={[styles.tagText, { color: c.textSecondary }]}>{t}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {show.isLive ? (
-            <PrimaryButton
-              title="Join live show"
-              onPress={() => {
-                // The whole join starts at the tap and overlaps the
-                // transition; the room screen adopts it mid-flight.
-                markShowTapped(String(show.id));
-                startJoin(String(show.id));
-                router.push({ pathname: '/live/[id]', params: { id: String(show.id) } });
-              }}
-            />
-          ) : show.replayUrl ? (
-            <PrimaryButton
-              title="Watch replay"
-              onPress={() =>
-                router.push({
-                  pathname: '/replay',
-                  params: { url: show.replayUrl!, title: show.name },
-                })
-              }
-            />
-          ) : (
-            // REAL local reminder — a scheduled device notification ~10 min
-            // before the show. Device-local by design: no push backend exists.
-            <PrimaryButton
-              title={reminded ? 'Reminder set \u2713 \u00b7 tap to cancel' : 'Remind me'}
-              variant="ghost"
-              onPress={toggleReminder}
-              loading={remindBusy}
-            />
-          )}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   center: {
     flex: 1,
@@ -311,37 +351,56 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: Spacing.three,
     left: Spacing.three,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     borderRadius: 6,
     paddingHorizontal: Spacing.two + 2,
     paddingVertical: 3,
   },
   liveText: { color: '#fff', fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 1.5 },
   body: { padding: Spacing.three, gap: Spacing.three },
+  titleBlock: { gap: Spacing.three },
+  midBlock: { gap: Spacing.three },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   sellerLink: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  seller: { fontSize: 15, fontFamily: Fonts.sansSemiBold },
+  seller: { fontSize: 15, fontFamily: Fonts.uiSemiBold },
   msgBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     borderWidth: 1,
+    borderColor: Brand.hairline,
     borderRadius: 999,
     paddingHorizontal: Spacing.two + 2,
     paddingVertical: 4,
   },
-  msgBtnText: { fontSize: 12, fontFamily: Fonts.sansMedium },
+  msgBtnText: { fontSize: 12, fontFamily: Fonts.uiSemiBold },
   rating: { fontSize: 13, fontFamily: Fonts.mono, marginLeft: 4 },
-  infoCard: { borderWidth: 1, borderRadius: 12, padding: Spacing.three, gap: Spacing.two },
+  infoCard: { padding: Spacing.three, gap: Spacing.two },
   infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  infoValueRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   infoLabel: { fontFamily: Fonts.mono, fontSize: 10, letterSpacing: 1.5 },
-  infoValue: { fontFamily: Fonts.sansMedium, fontSize: 14 },
+  infoValue: { fontFamily: Fonts.uiSemiBold, fontSize: 14 },
   hairline: { height: 1 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   tag: {
     borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
     borderRadius: 999,
     paddingHorizontal: Spacing.two + Spacing.one,
     paddingVertical: 4,
   },
-  tagText: { fontSize: 12, fontFamily: Fonts.sans },
+  tagText: { fontSize: 12, fontFamily: Fonts.ui },
+  ghostBtn: {
+    borderWidth: 1,
+    borderColor: Brand.hairline,
+    borderRadius: 13,
+    minHeight: 48,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  ghostBtnText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.uiBold },
 });

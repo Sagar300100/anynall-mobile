@@ -1,13 +1,23 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Colors } from '@/constants/theme';
+import { Brand } from '@/constants/theme';
+import { useIsGuest, type GatedAction } from '@/lib/auth-gate';
 
-// Dark-only brand (matches the site); no scheme switch.
-const c = Colors.dark;
+/**
+ * Guest flow (design-language §6.2): a signed-out user may only browse the
+ * home/Live tab. Every other tab press routes to sign-in, carrying the
+ * action-specific reason so the auth screen's ask is never generic.
+ */
+const GUEST_TAB_REASONS: Record<string, GatedAction> = {
+  browse: 'search',
+  sell: 'sell',
+  inbox: 'inbox',
+  profile: 'profile',
+};
 
 /**
  * Five destinations, Live first — `index` IS Live, so a cold start (and any
@@ -28,6 +38,9 @@ export default function AppTabsLayout() {
   // of Android's 3-button navigation and the iOS home indicator alike.
   const insets = useSafeAreaInsets();
   const barHeight = 58 + insets.bottom;
+  // True only once the session has RESOLVED to signed-out — a tab press
+  // during Firebase's async restore is never mis-gated.
+  const isGuest = useIsGuest();
 
   return (
     <Tabs
@@ -41,26 +54,29 @@ export default function AppTabsLayout() {
       backBehavior="history"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: c.primary,
-        tabBarInactiveTintColor: 'rgba(159,180,216,0.62)',
+        tabBarActiveTintColor: Brand.blueSky,
+        tabBarInactiveTintColor: Brand.slate400,
+        // Frosted dark bar (design-language §6.3): ink950 at 0.92 over the
+        // page atmosphere, neutral top hairline.
         tabBarStyle: {
-          backgroundColor: c.background,
-          borderTopColor: 'rgba(74,143,229,0.14)',
+          backgroundColor: 'rgba(2,8,20,0.92)',
+          borderTopColor: Brand.hairlineWhite,
           borderTopWidth: 1,
           height: barHeight,
           paddingTop: 7,
           paddingBottom: insets.bottom + 6,
         },
-        // NATIVE font here, deliberately — not Inter. Fabric measures tab
-        // labels on a background thread that can't see runtime-loaded fonts,
-        // so an Inter label gets a box sized for the system font and paints
-        // wider → "Profi…" (verified via uiautomator bounds: "Live" boxed at
-        // 36px, painted wider). At 10.5px the system medium face is visually
-        // interchangeable; measurement is always correct.
+        // NATIVE font here, deliberately — not Jakarta (spec deviation, on
+        // purpose). Fabric measures tab labels on a background thread that
+        // can't see runtime-loaded fonts, so a custom-font label gets a box
+        // sized for the system font and paints wider → "Profi…" (verified via
+        // uiautomator bounds: "Live" boxed at 36px, painted wider). At 10.5px
+        // the system semibold face is visually interchangeable with Jakarta
+        // 600; measurement is always correct.
         tabBarLabelStyle: {
           fontSize: 10.5,
           fontFamily: Platform.select({ android: 'sans-serif-medium', ios: 'System' }),
-          fontWeight: '500',
+          fontWeight: '600',
           marginTop: 1,
         },
         // All five labels must always render in full — at huge system font
@@ -69,11 +85,21 @@ export default function AppTabsLayout() {
         tabBarAllowFontScaling: false,
       }}
       // Light tick on selection — expo-haptics is already a dependency.
-      screenListeners={{
-        tabPress: () => {
+      screenListeners={({ route }) => ({
+        tabPress: (e) => {
           Haptics.selectionAsync().catch(() => {});
+          // Guests may only browse home (Live). Any other TAB press is
+          // swallowed and routed to sign-in with its reason. Pushed screens
+          // (href: null) have no tab button, so they never fire tabPress.
+          if (isGuest && route.name !== 'index') {
+            e.preventDefault();
+            const reason = GUEST_TAB_REASONS[route.name];
+            router.push(
+              reason ? { pathname: '/sign-in', params: { reason } } : '/sign-in'
+            );
+          }
         },
-      }}
+      })}
     >
       <Tabs.Screen
         name="index"

@@ -28,7 +28,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -36,10 +35,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
 import { StatePicker } from '@/components/state-picker';
-import { Field, FormError, PrimaryButton, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { Field, FormError, useBrandColors } from '@/components/ui/form';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { useAuthStatus } from '@/lib/auth-gate';
 import {
   getCommerceProfile,
@@ -148,17 +150,19 @@ export default function AddressScreen() {
   const stateName = IN_STATES.find((s) => s.code === saved?.stateCode)?.name;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/profile'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Delivery address</Text>
       </View>
 
@@ -188,7 +192,7 @@ export default function AddressScreen() {
               <Text style={[styles.okText, { color: '#4ade80' }]}>Address saved</Text>
             </View>
           )}
-          <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+          <View style={styles.card}>
             <View style={styles.cardHead}>
               <Ionicons name="home-outline" size={18} color={c.primary} />
               <Text style={[styles.cardName, { color: c.text }]}>{saved.name}</Text>
@@ -201,7 +205,7 @@ export default function AddressScreen() {
               {saved.line2 ? `\n${saved.line2}` : ''}
               {`\n${saved.city}, ${stateName || saved.stateCode} ${saved.pincode}`}
             </Text>
-            <View style={[styles.phoneRow, { borderTopColor: c.border }]}>
+            <View style={[styles.phoneRow, { borderTopColor: Brand.hairlineWhite }]}>
               <Ionicons name="call-outline" size={14} color={c.textFaint} />
               <Text style={[styles.phoneText, { color: c.textSecondary }]}>+91 {saved.phone}</Text>
             </View>
@@ -212,15 +216,18 @@ export default function AddressScreen() {
             you — some sellers may only deliver within their own State under GST rules.
           </Text>
 
-          <PrimaryButton
-            title="Edit address"
-            variant="ghost"
+          <PressScale
             onPress={() => {
               setForm({ ...saved, ...(accountName ? { name: accountName } : {}) });
               setJustSaved(false);
               setEditing(true);
             }}
-          />
+            accessibilityRole="button"
+            accessibilityLabel="Edit address"
+            style={styles.ghostBtn}
+          >
+            <Text style={styles.ghostBtnText}>Edit address</Text>
+          </PressScale>
         </ScrollView>
       ) : (
         /* ── Edit form ── */
@@ -285,9 +292,9 @@ export default function AddressScreen() {
               placeholder="6-digit PIN"
             />
             <FormError message={error} />
-            <PrimaryButton title="Save address" onPress={submit} loading={busy} />
+            <GradientCTA title={busy ? 'Saving…' : 'Save address'} onPress={submit} disabled={busy} />
             {saved && (
-              <Pressable
+              <PressScale
                 onPress={() => {
                   setEditing(false);
                   setError(null);
@@ -295,19 +302,21 @@ export default function AddressScreen() {
                 disabled={busy}
                 accessibilityRole="button"
                 accessibilityLabel="Cancel editing"
-                style={({ pressed }) => [styles.cancel, { opacity: pressed ? 0.6 : 1 }]}
+                style={styles.cancel}
               >
                 <Text style={[styles.cancelText, { color: c.textSecondary }]}>Cancel</Text>
-              </Pressable>
+              </PressScale>
             )}
           </ScrollView>
         </KeyboardAvoidingView>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   flex: { flex: 1 },
   topBar: {
@@ -319,12 +328,12 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.four },
 
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.three, paddingBottom: Spacing.six },
-  body: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 21 },
-  note: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  body: { fontSize: 14, fontFamily: Fonts.ui, lineHeight: 21 },
+  note: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
   nameNote: { marginTop: -Spacing.two },
 
   okBox: {
@@ -336,13 +345,20 @@ const styles = StyleSheet.create({
     padding: Spacing.two + Spacing.one,
     backgroundColor: 'rgba(74,222,128,0.08)',
   },
-  okText: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  okText: { fontSize: 13, fontFamily: Fonts.uiMedium },
 
-  card: { borderWidth: 1, borderRadius: 16, padding: Spacing.three + Spacing.one, gap: Spacing.two },
+  card: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: Spacing.three + Spacing.one,
+    gap: Spacing.two,
+  },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  cardName: { flex: 1, fontSize: 15.5, fontFamily: Fonts.sansSemiBold },
+  cardName: { flex: 1, fontSize: 15.5, fontFamily: Fonts.uiSemiBold },
   defaultBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  defaultBadgeText: { fontSize: 10.5, fontFamily: Fonts.sansMedium },
+  defaultBadgeText: { fontSize: 10.5, fontFamily: Fonts.uiMedium },
   phoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -351,8 +367,19 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.two + 2,
     marginTop: Spacing.one,
   },
-  phoneText: { fontSize: 13, fontFamily: Fonts.sans },
+  phoneText: { fontSize: 13, fontFamily: Fonts.ui },
 
   cancel: { alignSelf: 'center', paddingVertical: Spacing.one, minHeight: 44, justifyContent: 'center' },
-  cancelText: { fontSize: 13.5, fontFamily: Fonts.sansMedium },
+  cancelText: { fontSize: 13.5, fontFamily: Fonts.uiMedium },
+
+  ghostBtn: {
+    borderWidth: 1,
+    borderColor: Brand.hairline,
+    borderRadius: 13,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  ghostBtnText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.uiBold },
 });

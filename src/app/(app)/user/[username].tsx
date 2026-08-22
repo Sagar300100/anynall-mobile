@@ -19,12 +19,12 @@
 // request gate was removed; see lib/conversations.ts).
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -32,9 +32,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { FadeUp } from '@/components/brand/fade-up';
+import { GlassCard } from '@/components/brand/glass-card';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { ShowCard } from '@/components/show-card';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, CtaGradientShell, Fonts, Spacing } from '@/constants/theme';
 import type { ShowData } from '@/lib/api';
 import { useAuthGate } from '@/lib/auth-gate';
 import { getOrCreateDirectConversation } from '@/lib/conversations';
@@ -209,266 +214,277 @@ export default function PublicProfileScreen() {
   const countsReadable = !!user;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
-        <Text style={[styles.topTitle, { color: c.text }]} numberOfLines={1}>
-          {profile ? `@${profile.username || profile.displayName}` : 'Profile'}
-        </Text>
-      </View>
-
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={c.primary} />
-        </View>
-      ) : notFound ? (
-        <View style={styles.center}>
-          <Ionicons name="person-circle-outline" size={40} color={c.textFaint} />
-          <Text style={[styles.body, { color: c.textSecondary }]}>
-            This profile doesn’t exist or isn’t available.
+    <View style={styles.rootWrap}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.topBar}>
+          <PressScale
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={10}
+            style={styles.backBtn}
+          >
+            <Ionicons name="arrow-back" size={22} color={c.text} />
+          </PressScale>
+          <Text style={[styles.topTitle, { color: Brand.mist }]} numberOfLines={1}>
+            {profile ? `@${profile.username || profile.displayName}` : 'Profile'}
           </Text>
         </View>
-      ) : profile ? (
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {/* ── Header ── */}
-          <View style={styles.header}>
-            {profile.photoURL ? (
-              <Image source={{ uri: profile.photoURL }} style={styles.avatar} contentFit="cover" />
-            ) : (
-              <View style={[styles.avatar, styles.avatarEmpty, { borderColor: c.border }]}>
-                <Ionicons name="person-outline" size={30} color={c.textSecondary} />
-              </View>
-            )}
-            <View style={styles.headerText}>
-              <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-                {profile.displayName}
-              </Text>
-              {!!profile.username && (
-                <Text style={[styles.handle, { color: c.textSecondary }]} numberOfLines={1}>
-                  @{profile.username}
-                </Text>
-              )}
-              <View style={styles.badges}>
-                {profile.isSeller && (
-                  <View style={[styles.roleBadge, { borderColor: 'rgba(74,143,229,0.4)' }]}>
-                    <Ionicons name="storefront-outline" size={11} color={c.primary} />
-                    <Text style={[styles.roleBadgeText, { color: c.primary }]}>Seller</Text>
-                  </View>
-                )}
-                {profile.isPrivate && (
-                  <View style={[styles.roleBadge, { borderColor: c.borderStrong }]}>
-                    <Ionicons name="lock-closed-outline" size={11} color={c.textSecondary} />
-                    <Text style={[styles.roleBadgeText, { color: c.textSecondary }]}>Private</Text>
-                  </View>
-                )}
-              </View>
-            </View>
+
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={Brand.blueSky} />
           </View>
-
-          {/* ── Counts ── */}
-          <View style={styles.counts}>
-            <CountCell
-              label="Followers"
-              value={countsReadable ? counts.followers : '—'}
-              onPress={() => openPeople('followers')}
-              active={peopleTab === 'followers'}
-              disabled={!countsReadable || !canSeeContent}
-            />
-            <View style={[styles.countDivider, { backgroundColor: c.border }]} />
-            <CountCell
-              label="Following"
-              value={countsReadable ? counts.following : '—'}
-              onPress={() => openPeople('following')}
-              active={peopleTab === 'following'}
-              disabled={!countsReadable || !canSeeContent}
-            />
+        ) : notFound ? (
+          <View style={styles.center}>
+            <Ionicons name="person-circle-outline" size={40} color={Brand.mistFaint} />
+            <Text style={[styles.body, { color: Brand.slate400 }]}>
+              This profile doesn’t exist or isn’t available.
+            </Text>
           </View>
-
-          {/* ── Actions ── */}
-          {!isOwner && (
-            <View style={styles.actions}>
-              <Pressable
-                onPress={handleFollowPress}
-                disabled={followBusy}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  status === 'following'
-                    ? 'Unfollow'
-                    : status === 'requested'
-                      ? 'Cancel follow request'
-                      : 'Follow'
-                }
-                accessibilityState={{ disabled: followBusy, selected: status !== 'none' }}
-                style={({ pressed }) => [
-                  styles.followBtn,
-                  status === 'none'
-                    ? { backgroundColor: c.cta }
-                    : { backgroundColor: 'transparent', borderWidth: 1, borderColor: c.borderStrong },
-                  { opacity: pressed || followBusy ? 0.75 : 1 },
-                ]}
-              >
-                {followBusy ? (
-                  <ActivityIndicator size="small" color={status === 'none' ? c.ctaText : c.text} />
-                ) : (
-                  <Text
-                    style={[styles.followBtnText, { color: status === 'none' ? c.ctaText : c.text }]}
-                  >
-                    {status === 'following'
-                      ? 'Following'
-                      : status === 'requested'
-                        ? 'Requested'
-                        : 'Follow'}
-                  </Text>
-                )}
-              </Pressable>
-              <Pressable
-                onPress={handleMessagePress}
-                disabled={messaging}
-                accessibilityRole="button"
-                accessibilityLabel={`Message ${profile.displayName}`}
-                style={({ pressed }) => [
-                  styles.msgBtn,
-                  { borderColor: c.borderStrong, opacity: pressed || messaging ? 0.7 : 1 },
-                ]}
-              >
-                {messaging ? (
-                  <ActivityIndicator size="small" color={c.text} />
-                ) : (
-                  <Ionicons name="chatbubble-outline" size={17} color={c.text} />
-                )}
-              </Pressable>
-            </View>
-          )}
-
-          {!!error && <Text style={[styles.errorText, { color: c.danger }]}>{error}</Text>}
-
-          {!canSeeContent ? (
-            /* ── Private gate — identity/counts above stay visible, the
-                  content below requires an approved follow. ── */
-            <View
-              style={[styles.card, styles.lockCard, { backgroundColor: c.cardBackground, borderColor: c.border }]}
-            >
-              <Ionicons name="lock-closed-outline" size={26} color={c.textSecondary} />
-              <Text style={[styles.lockTitle, { color: c.text }]}>This account is private</Text>
-              <Text style={[styles.body, styles.lockBody, { color: c.textSecondary }]}>
-                Follow {profile.displayName} to see their shows and activity.
-              </Text>
-            </View>
-          ) : (
-          <>
-              {/* ── People list (lazy) ── */}
-              {peopleTab && (
-                <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
-                  <Text style={[styles.cardTitle, { color: c.text }]}>
-                    {peopleTab === 'followers' ? 'Followers' : 'Following'}
-                  </Text>
-                  {people === null ? (
-                    <ActivityIndicator color={c.primary} style={styles.peopleLoading} />
-                  ) : people.length === 0 ? (
-                    <Text style={[styles.body, { color: c.textFaint }]}>
-                      {peopleTab === 'followers' ? 'No followers yet.' : 'Not following anyone yet.'}
-                    </Text>
-                  ) : (
-                    people.map((p) => (
-                      <Pressable
-                        key={p.uid}
-                        onPress={() =>
-                          router.push({
-                            pathname: '/user/[username]',
-                            params: { username: p.username || p.uid, uid: p.uid },
-                          })
-                        }
-                        accessibilityRole="button"
-                        accessibilityLabel={`View ${p.name}'s profile`}
-                        style={({ pressed }) => [styles.personRow, pressed && { opacity: 0.7 }]}
-                      >
-                        {p.photoURL ? (
-                          <Image source={{ uri: p.photoURL }} style={styles.personAvatar} contentFit="cover" />
-                        ) : (
-                          <View style={[styles.personAvatar, styles.avatarEmpty, { borderColor: c.border }]}>
-                            <Ionicons name="person-outline" size={14} color={c.textSecondary} />
-                          </View>
-                        )}
-                        <View style={styles.personText}>
-                          <Text style={[styles.personName, { color: c.text }]} numberOfLines={1}>
-                            {p.name}
-                          </Text>
-                          {!!p.username && (
-                            <Text style={[styles.personHandle, { color: c.textFaint }]} numberOfLines={1}>
-                              @{p.username}
-                            </Text>
-                          )}
-                        </View>
-                        <Ionicons name="chevron-forward" size={15} color={c.textFaint} />
-                      </Pressable>
-                    ))
-                  )}
+        ) : profile ? (
+          <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+            {/* ── Header ── */}
+            <FadeUp index={0} style={styles.header}>
+              {profile.photoURL ? (
+                <Image source={{ uri: profile.photoURL }} style={styles.avatar} contentFit="cover" />
+              ) : (
+                <View style={[styles.avatar, styles.avatarEmpty, { borderColor: Brand.hairlineWhite }]}>
+                  <Ionicons name="person-outline" size={30} color={Brand.slate400} />
                 </View>
               )}
-
-              {/* ── About ── */}
-              <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
-                <Text style={[styles.cardTitle, { color: c.text }]}>About</Text>
-                <Text style={[styles.body, { color: profile.bio ? c.textSecondary : c.textFaint }]}>
-                  {profile.bio ||
-                    (isOwner
-                      ? 'This is your bio. Add a few lines about yourself on anynall.com so others can know you better.'
-                      : 'No bio yet.')}
+              <View style={styles.headerText}>
+                <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+                  {profile.displayName}
                 </Text>
-                {profile.interests.length > 0 && (
-                  <View style={styles.interests}>
-                    {profile.interests.map((tag) => (
-                      <View key={tag} style={[styles.interestChip, { borderColor: c.border }]}>
-                        <Text style={[styles.interestText, { color: c.textSecondary }]}>{tag}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-                {!!joinedLabel(profile.createdAtMs) && (
-                  <Text style={[styles.joined, { color: c.textFaint }]}>
-                    {joinedLabel(profile.createdAtMs)}
+                {!!profile.username && (
+                  <Text style={[styles.handle, { color: Brand.slate400 }]} numberOfLines={1}>
+                    @{profile.username}
                   </Text>
                 )}
+                <View style={styles.badges}>
+                  {profile.isSeller && (
+                    <View style={[styles.roleBadge, { borderColor: 'rgba(74,143,229,0.4)' }]}>
+                      <Ionicons name="storefront-outline" size={11} color={Brand.blueSky} />
+                      <Text style={[styles.roleBadgeText, { color: Brand.blueSky }]}>Seller</Text>
+                    </View>
+                  )}
+                  {profile.isPrivate && (
+                    <View style={[styles.roleBadge, { borderColor: Brand.hairline }]}>
+                      <Ionicons name="lock-closed-outline" size={11} color={Brand.slate400} />
+                      <Text style={[styles.roleBadgeText, { color: Brand.slate400 }]}>Private</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </FadeUp>
+
+            {/* ── Counts ── */}
+            <FadeUp index={1} style={styles.countsWrap}>
+              <View style={styles.counts}>
+                <CountCell
+                  label="Followers"
+                  value={countsReadable ? counts.followers : '—'}
+                  onPress={() => openPeople('followers')}
+                  active={peopleTab === 'followers'}
+                  disabled={!countsReadable || !canSeeContent}
+                />
+                <View style={[styles.countDivider, { backgroundColor: Brand.hairlineWhite }]} />
+                <CountCell
+                  label="Following"
+                  value={countsReadable ? counts.following : '—'}
+                  onPress={() => openPeople('following')}
+                  active={peopleTab === 'following'}
+                  disabled={!countsReadable || !canSeeContent}
+                />
               </View>
 
-              {/* ── Seller shows ── */}
-              {profile.isSeller && (liveShows.length > 0 || upcomingShows.length > 0) && (
-                <>
-                  {liveShows.length > 0 && (
-                    <View style={styles.showsSection}>
-                      <Text style={[styles.sectionTitle, { color: '#E63946' }]}>LIVE NOW</Text>
-                      <View style={styles.showsGrid}>
-                        {liveShows.map((s) => (
-                          <ShowCard key={String(s.id)} show={s} width={GRID_CARD_WIDTH} />
-                        ))}
-                      </View>
-                    </View>
-                  )}
-                  {upcomingShows.length > 0 && (
-                    <View style={styles.showsSection}>
-                      <Text style={[styles.sectionTitle, { color: c.primary }]}>SHOWS</Text>
-                      <View style={styles.showsGrid}>
-                        {upcomingShows.map((s) => (
-                          <ShowCard key={String(s.id)} show={s} width={GRID_CARD_WIDTH} />
-                        ))}
-                      </View>
-                    </View>
-                  )}
-                </>
+              {/* ── Actions ── */}
+              {!isOwner && (
+                <View style={styles.actions}>
+                  <PressScale
+                    onPress={handleFollowPress}
+                    disabled={followBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      status === 'following'
+                        ? 'Unfollow'
+                        : status === 'requested'
+                          ? 'Cancel follow request'
+                          : 'Follow'
+                    }
+                    accessibilityState={{ disabled: followBusy, selected: status !== 'none' }}
+                    style={[
+                      styles.followBtn,
+                      status !== 'none' && styles.followBtnGhost,
+                      followBusy && { opacity: 0.75 },
+                    ]}
+                  >
+                    {status === 'none' ? (
+                      <LinearGradient
+                        colors={[...CtaGradientShell]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.followFill}
+                      >
+                        {followBusy ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.followBtnText}>Follow</Text>
+                        )}
+                      </LinearGradient>
+                    ) : followBusy ? (
+                      <ActivityIndicator size="small" color={c.text} />
+                    ) : (
+                      <Text style={styles.followBtnText}>
+                        {status === 'following' ? 'Following' : 'Requested'}
+                      </Text>
+                    )}
+                  </PressScale>
+                  <PressScale
+                    onPress={handleMessagePress}
+                    disabled={messaging}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Message ${profile.displayName}`}
+                    style={[styles.msgBtn, messaging && { opacity: 0.7 }]}
+                  >
+                    {messaging ? (
+                      <ActivityIndicator size="small" color={c.text} />
+                    ) : (
+                      <Ionicons name="chatbubble-outline" size={17} color={c.text} />
+                    )}
+                  </PressScale>
+                </View>
               )}
-          </>
-          )}
-        </ScrollView>
-      ) : null}
-    </SafeAreaView>
+            </FadeUp>
+
+            {!!error && <Text style={[styles.errorText, { color: Brand.dangerSoft }]}>{error}</Text>}
+
+            {!canSeeContent ? (
+              /* ── Private gate — identity/counts above stay visible, the
+                    content below requires an approved follow. ── */
+              <FadeUp index={2}>
+                <GlassCard style={[styles.card, styles.lockCard]}>
+                  <Ionicons name="lock-closed-outline" size={26} color={Brand.slate400} />
+                  <Text style={[styles.lockTitle, { color: c.text }]}>This account is private</Text>
+                  <Text style={[styles.body, styles.lockBody, { color: Brand.slate400 }]}>
+                    Follow {profile.displayName} to see their shows and activity.
+                  </Text>
+                </GlassCard>
+              </FadeUp>
+            ) : (
+            <>
+                {/* ── People list (lazy) ── */}
+                {peopleTab && (
+                  <GlassCard style={styles.card}>
+                    <Text style={[styles.cardTitle, { color: c.text }]}>
+                      {peopleTab === 'followers' ? 'Followers' : 'Following'}
+                    </Text>
+                    {people === null ? (
+                      <ActivityIndicator color={Brand.blueSky} style={styles.peopleLoading} />
+                    ) : people.length === 0 ? (
+                      <Text style={[styles.body, { color: Brand.mistFaint }]}>
+                        {peopleTab === 'followers' ? 'No followers yet.' : 'Not following anyone yet.'}
+                      </Text>
+                    ) : (
+                      people.map((p) => (
+                        <PressScale
+                          key={p.uid}
+                          onPress={() =>
+                            router.push({
+                              pathname: '/user/[username]',
+                              params: { username: p.username || p.uid, uid: p.uid },
+                            })
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel={`View ${p.name}'s profile`}
+                          style={styles.personRow}
+                        >
+                          {p.photoURL ? (
+                            <Image source={{ uri: p.photoURL }} style={styles.personAvatar} contentFit="cover" />
+                          ) : (
+                            <View style={[styles.personAvatar, styles.avatarEmpty, { borderColor: Brand.hairlineWhite }]}>
+                              <Ionicons name="person-outline" size={14} color={Brand.slate400} />
+                            </View>
+                          )}
+                          <View style={styles.personText}>
+                            <Text style={[styles.personName, { color: c.text }]} numberOfLines={1}>
+                              {p.name}
+                            </Text>
+                            {!!p.username && (
+                              <Text style={[styles.personHandle, { color: Brand.mistFaint }]} numberOfLines={1}>
+                                @{p.username}
+                              </Text>
+                            )}
+                          </View>
+                          <Ionicons name="chevron-forward" size={15} color={Brand.mistFaint} />
+                        </PressScale>
+                      ))
+                    )}
+                  </GlassCard>
+                )}
+
+                {/* ── About ── */}
+                <FadeUp index={2}>
+                  <GlassCard style={styles.card}>
+                    <Text style={[styles.cardTitle, { color: c.text }]}>About</Text>
+                    <Text style={[styles.body, { color: profile.bio ? Brand.mist : Brand.mistFaint }]}>
+                      {profile.bio ||
+                        (isOwner
+                          ? 'This is your bio. Add a few lines about yourself on anynall.com so others can know you better.'
+                          : 'No bio yet.')}
+                    </Text>
+                    {profile.interests.length > 0 && (
+                      <View style={styles.interests}>
+                        {profile.interests.map((tag) => (
+                          <View key={tag} style={[styles.interestChip, { borderColor: Brand.hairlineWhite }]}>
+                            <Text style={[styles.interestText, { color: Brand.slate400 }]}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {!!joinedLabel(profile.createdAtMs) && (
+                      <Text style={[styles.joined, { color: Brand.mistFaint }]}>
+                        {joinedLabel(profile.createdAtMs)}
+                      </Text>
+                    )}
+                  </GlassCard>
+                </FadeUp>
+
+                {/* ── Seller shows ── */}
+                {profile.isSeller && (liveShows.length > 0 || upcomingShows.length > 0) && (
+                  <>
+                    {liveShows.length > 0 && (
+                      <View style={styles.showsSection}>
+                        <Eyebrow live color={Brand.liveRose} style={styles.sectionTitle}>
+                          Live now
+                        </Eyebrow>
+                        <View style={styles.showsGrid}>
+                          {liveShows.map((s) => (
+                            <ShowCard key={String(s.id)} show={s} width={GRID_CARD_WIDTH} />
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                    {upcomingShows.length > 0 && (
+                      <View style={styles.showsSection}>
+                        <Eyebrow style={styles.sectionTitle}>Shows</Eyebrow>
+                        <View style={styles.showsGrid}>
+                          {upcomingShows.map((s) => (
+                            <ShowCard key={String(s.id)} show={s} width={GRID_CARD_WIDTH} />
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                  </>
+                )}
+            </>
+            )}
+          </ScrollView>
+        ) : null}
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -489,19 +505,19 @@ function CountCell({
 }) {
   const c = useBrandColors();
   return (
-    <Pressable
+    <PressScale
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={`${value} ${label}`}
       accessibilityState={{ expanded: active, disabled }}
-      style={({ pressed }) => [styles.countCell, pressed && !disabled && { opacity: 0.7 }]}
+      style={styles.countCell}
     >
       <Text style={[styles.countValue, { color: c.text }]}>{value}</Text>
-      <Text style={[styles.countLabel, { color: active ? c.primary : c.textSecondary }]}>
+      <Text style={[styles.countLabel, { color: active ? Brand.blueSky : Brand.slate400 }]}>
         {label}
       </Text>
-    </Pressable>
+    </PressScale>
   );
 }
 
@@ -509,6 +525,7 @@ function CountCell({
 const GRID_CARD_WIDTH = (Dimensions.get('window').width - Spacing.three * 2 - Spacing.two) / 2;
 
 const styles = StyleSheet.create({
+  rootWrap: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -519,9 +536,9 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 17, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 14, fontFamily: Fonts.mono, letterSpacing: 0.5 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.two, padding: Spacing.four },
-  body: { fontSize: 14, fontFamily: Fonts.sans, lineHeight: 21 },
+  body: { fontSize: 14, fontFamily: Fonts.ui, lineHeight: 21 },
 
   scroll: { padding: Spacing.three, paddingTop: Spacing.one, gap: Spacing.three, paddingBottom: Spacing.six },
 
@@ -529,8 +546,8 @@ const styles = StyleSheet.create({
   avatar: { width: 74, height: 74, borderRadius: 37 },
   avatarEmpty: { borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   headerText: { flex: 1, gap: 2 },
-  name: { fontSize: 20, fontFamily: Fonts.sansSemiBold },
-  handle: { fontSize: 13.5, fontFamily: Fonts.sans },
+  name: { fontSize: 22, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
+  handle: { fontSize: 12.5, fontFamily: Fonts.mono, letterSpacing: 0.5 },
   badges: { flexDirection: 'row', gap: Spacing.two, marginTop: 3 },
   roleBadge: {
     flexDirection: 'row',
@@ -541,51 +558,66 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  roleBadgeText: { fontSize: 10.5, fontFamily: Fonts.sansMedium },
+  roleBadgeText: { fontSize: 10.5, fontFamily: Fonts.uiSemiBold },
 
+  countsWrap: { gap: Spacing.three },
   counts: { flexDirection: 'row', alignItems: 'center' },
   countCell: { flex: 1, alignItems: 'center', gap: 1, paddingVertical: Spacing.one, minHeight: 48 },
-  countValue: { fontSize: 17, fontFamily: Fonts.sansSemiBold },
-  countLabel: { fontSize: 12, fontFamily: Fonts.sansMedium },
+  countValue: { fontSize: 18, fontFamily: Fonts.uiExtraBold },
+  countLabel: { fontSize: 12, fontFamily: Fonts.uiSemiBold },
   countDivider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
 
   actions: { flexDirection: 'row', gap: Spacing.two },
   followBtn: {
     flex: 1,
-    borderRadius: 999,
+    borderRadius: 13,
     minHeight: 44,
+    alignItems: 'stretch',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  followBtnGhost: {
+    borderWidth: 1,
+    borderColor: Brand.hairline,
+    alignItems: 'center',
+  },
+  followFill: {
+    minHeight: 44,
+    alignSelf: 'stretch',
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  followBtnText: { fontSize: 14, fontFamily: Fonts.sansSemiBold },
+  followBtnText: { fontSize: 14, fontFamily: Fonts.uiBold, color: '#FFFFFF' },
   msgBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
+    borderColor: Brand.hairline,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  errorText: { fontSize: 13, fontFamily: Fonts.sans, textAlign: 'center' },
+  errorText: { fontSize: 13, fontFamily: Fonts.ui, textAlign: 'center' },
 
-  card: { borderWidth: 1, borderRadius: 16, padding: Spacing.three + Spacing.one, gap: Spacing.two },
-  cardTitle: { fontSize: 15.5, fontFamily: Fonts.sansSemiBold },
+  card: { padding: Spacing.three + Spacing.one, gap: Spacing.two },
+  cardTitle: { fontSize: 15.5, fontFamily: Fonts.uiSemiBold },
   lockCard: { alignItems: 'center', paddingVertical: Spacing.five, gap: Spacing.one },
-  lockTitle: { fontSize: 15.5, fontFamily: Fonts.sansSemiBold, marginTop: Spacing.one },
+  lockTitle: { fontSize: 15.5, fontFamily: Fonts.uiSemiBold, marginTop: Spacing.one },
   lockBody: { textAlign: 'center' },
   peopleLoading: { paddingVertical: Spacing.three },
   personRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two + Spacing.one, minHeight: 52 },
   personAvatar: { width: 36, height: 36, borderRadius: 18 },
   personText: { flex: 1, gap: 1 },
-  personName: { fontSize: 14, fontFamily: Fonts.sansMedium },
-  personHandle: { fontSize: 12, fontFamily: Fonts.sans },
+  personName: { fontSize: 14, fontFamily: Fonts.uiSemiBold },
+  personHandle: { fontSize: 12, fontFamily: Fonts.ui },
 
   interests: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   interestChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  interestText: { fontSize: 12, fontFamily: Fonts.sansMedium },
-  joined: { fontSize: 12, fontFamily: Fonts.sans, marginTop: 2 },
+  interestText: { fontSize: 12, fontFamily: Fonts.uiSemiBold },
+  joined: { fontSize: 12, fontFamily: Fonts.ui, marginTop: 2 },
 
   showsSection: { gap: Spacing.two },
-  sectionTitle: { fontFamily: Fonts.mono, fontSize: 10.5, letterSpacing: 1.8, marginLeft: 2 },
+  sectionTitle: { marginLeft: 2 },
   showsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
 });

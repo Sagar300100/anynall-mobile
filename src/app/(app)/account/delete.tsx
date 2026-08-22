@@ -14,7 +14,6 @@ import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,8 +21,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { Field, FormError, useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import {
   deleteAccount,
   hasPasswordProvider,
@@ -76,17 +78,19 @@ export default function DeleteAccountScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Delete account</Text>
       </View>
 
@@ -106,13 +110,11 @@ export default function DeleteAccountScreen() {
             </Text>
           </View>
 
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>
-            DELETED IMMEDIATELY
-          </Text>
-          <View style={[styles.list, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+          <Eyebrow style={styles.sectionLabel}>Deleted immediately</Eyebrow>
+          <View style={styles.list}>
             {ERASED.map((item, i) => (
               <View key={item.label}>
-                {i > 0 && <View style={[styles.divider, { backgroundColor: c.border }]} />}
+                {i > 0 && <View style={[styles.divider, { backgroundColor: Brand.hairlineWhite }]} />}
                 <View style={styles.listRow}>
                   <Ionicons name={item.icon as never} size={18} color={c.textSecondary} />
                   <Text style={[styles.listText, { color: c.textSecondary }]}>{item.label}</Text>
@@ -152,40 +154,42 @@ export default function DeleteAccountScreen() {
 
           <FormError message={error} />
 
-          <Pressable
+          <PressScale
             onPress={submit}
             disabled={!ready || busy}
             accessibilityRole="button"
             accessibilityLabel="Delete my account forever"
             accessibilityState={{ disabled: !ready || busy }}
-            style={({ pressed }) => [
+            style={[
               styles.deleteBtn,
               {
                 backgroundColor: ready ? DANGER : 'rgba(229,72,77,0.25)',
-                opacity: pressed || busy ? 0.75 : 1,
+                opacity: busy ? 0.75 : 1,
               },
             ]}
           >
             <Text style={[styles.deleteBtnText, { color: ready ? '#fff' : 'rgba(255,255,255,0.55)' }]}>
               {busy ? 'Deleting…' : 'Delete my account forever'}
             </Text>
-          </Pressable>
+          </PressScale>
 
-          <Pressable
+          <PressScale
             onPress={() => (router.canGoBack() ? router.back() : router.replace('/settings'))}
             accessibilityRole="button"
             accessibilityLabel="Cancel"
-            style={({ pressed }) => [styles.cancel, { opacity: pressed ? 0.6 : 1 }]}
+            style={styles.cancel}
           >
             <Text style={[styles.cancelText, { color: c.textSecondary }]}>Keep my account</Text>
-          </Pressable>
+          </PressScale>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   flex: { flex: 1 },
   topBar: {
@@ -197,7 +201,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   scroll: { padding: Spacing.three, paddingTop: Spacing.two, gap: Spacing.three },
 
   warnBox: {
@@ -209,16 +213,16 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     backgroundColor: 'rgba(229,72,77,0.08)',
   },
-  warnText: { flex: 1, fontSize: 13.5, fontFamily: Fonts.sansMedium, lineHeight: 19 },
+  warnText: { flex: 1, fontSize: 13.5, fontFamily: Fonts.uiMedium, lineHeight: 19 },
 
-  sectionLabel: {
-    fontSize: 11.5,
-    fontFamily: Fonts.sansMedium,
-    letterSpacing: 1.1,
-    marginLeft: 4,
-    marginBottom: -Spacing.two,
+  sectionLabel: { marginLeft: 4, marginBottom: -Spacing.two },
+  list: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  list: { borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
   divider: { height: StyleSheet.hairlineWidth, marginHorizontal: Spacing.three },
   listRow: {
     flexDirection: 'row',
@@ -227,16 +231,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     minHeight: 46,
   },
-  listText: { flex: 1, fontSize: 13.5, fontFamily: Fonts.sans },
-  note: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  listText: { flex: 1, fontSize: 13.5, fontFamily: Fonts.ui },
+  note: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
 
   deleteBtn: {
-    borderRadius: 6,
+    borderRadius: 13,
     minHeight: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteBtnText: { fontSize: 15, fontFamily: Fonts.sansSemiBold },
+  deleteBtnText: { fontSize: 15, fontFamily: Fonts.uiBold },
   cancel: { alignSelf: 'center', paddingVertical: Spacing.one, minHeight: 44, justifyContent: 'center' },
-  cancelText: { fontSize: 14, fontFamily: Fonts.sansMedium },
+  cancelText: { fontSize: 14, fontFamily: Fonts.uiMedium },
 });

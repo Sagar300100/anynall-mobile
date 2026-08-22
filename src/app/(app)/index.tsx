@@ -1,50 +1,79 @@
 // Live — the app's home, and where guests land after the splash.
 //
-// Layout follows the approved homepage reference (header → search → category
-// rail → Live now grid → Browse more categories → Upcoming shows), with every
-// piece of content real: shows come from Firestore (public read), categories
-// come from the project's approved category source (lib/categories, ported
-// from the web app's onboarding constants), and start times are computed from
-// real scheduled timestamps.
+// Redesigned per docs/design-language.md (§5 hero, §6.1–6.2): PageAtmosphere
+// ground → HeroOrbit (globe + orbiting cutouts + display type) → glass search
+// pill → "Live now" glass cards → "Upcoming" rail → category bento (the 8
+// site .webp tiles, scrim + frosted strip recipe, stand-up entrance).
 //
-// HONEST OMISSIONS (no backend source — never faked):
-// - viewer counts (no field on show docs)
-// - seller avatars / verification badges on cards (no reliable fields)
-// - seller-verification banner (mobile has no seller/KYC state source)
-// - unread badges on the inbox/notification shortcuts (no count source wired)
-// - "Trending" ordering (no analytics; Browse-more simply lists categories
-//   with current shows first, and is not labelled as popularity)
+// Everything on screen is REAL data: shows come from Firestore (public read),
+// start times from real scheduled timestamps. The join warm-up pipeline is
+// preserved exactly — markShowTapped/startJoin on tap, LiveCardPreview cards
+// that HOLD the connection, re-warm on focus.
+//
+// GUEST FLOW (spec §6.2): signed-out users see all of home; every interaction
+// (show card, category tile, search, upcoming row, header shortcuts) routes
+// to /sign-in through useAuthGate with an action-specific reason. Signed-in
+// behavior is unchanged — the gate runs the action synchronously.
+//
+// HONEST OMISSIONS (no backend source — never faked): viewer counts, seller
+// avatars/verification, unread badges, "trending" ordering.
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Pressable,
+  AccessibilityInfo,
+  Animated,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/brand/eyebrow';
+import { FadeUp } from '@/components/brand/fade-up';
+import { GlassCard } from '@/components/brand/glass-card';
+import { GradientCTA } from '@/components/brand/gradient-cta';
+import { HeroOrbit } from '@/components/brand/hero-orbit';
+import { LivePulseDot } from '@/components/brand/live-pulse-dot';
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { LiveCardPreview } from '@/components/live-card-preview';
-import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { useScreenFocused } from '@/hooks/use-screen-focused';
 import { useShows } from '@/hooks/use-shows';
-import { useIsGuest } from '@/lib/auth-gate';
-import { categoryArtwork, categoryIcon, hasArtwork } from '@/lib/category-art';
-import { CATEGORIES } from '@/lib/categories';
+import { useAuthGate, useIsGuest } from '@/lib/auth-gate';
+import { dur, ease, stagger } from '@/lib/motion';
 import { getOnboardingState } from '@/lib/onboarding';
 import { useSession } from '@/lib/session';
 import { markShowTapped } from '@/lib/stream';
 import { startJoin } from '@/lib/stream-join';
 import type { ShowData } from '@/lib/api';
 
-/** Matches the navy field baked into the approved category artwork crops. */
-const ART_BG = '#010F27';
+/**
+ * The category bento — the site's 8 landing tiles (assets/categories/*.webp),
+ * labelled as on the website. `cat` is the REAL catalog category the tile
+ * lands on in Browse (Sneakers and Streetwear share one combined category).
+ */
+const BENTO_TILES = [
+  { label: 'Sneakers', cat: 'Sneakers & Streetwear', src: require('../../../assets/categories/sneakers.webp') },
+  { label: 'Streetwear', cat: 'Sneakers & Streetwear', src: require('../../../assets/categories/streetwear.webp') },
+  { label: 'Collectibles', cat: 'Collectibles', src: require('../../../assets/categories/collectibles.webp') },
+  { label: 'Vintage & Antiques', cat: 'Vintage & Antiques', src: require('../../../assets/categories/vintage.webp') },
+  { label: 'Fashion', cat: 'Fashion', src: require('../../../assets/categories/fashion.webp') },
+  { label: 'Bags & Accessories', cat: 'Bags & Accessories', src: require('../../../assets/categories/bags.webp') },
+  { label: 'Toys & Hobbies', cat: 'Toys & Hobbies', src: require('../../../assets/categories/toys.webp') },
+  { label: 'Sports', cat: 'Sports', src: require('../../../assets/categories/sports.webp') },
+] as const;
+
+/** Fixed text-block height under the 16:10 thumb keeps grid rows aligned. */
+const LIVE_CARD_BODY_H = 53;
 
 /** "Starts in 15m" / "Starts in 2h" / "In 3d" from a REAL timestamp. */
 function startsIn(iso: string, now: number): string | null {
@@ -71,99 +100,196 @@ function whenLabel(iso: string): string {
   return `${d.getDate()} ${d.toLocaleString([], { month: 'short' })}, ${time}`;
 }
 
-function SectionHeader({ title, support, action, onAction }: {
+/**
+ * Tile stand-up (design-language §4): perspective 1200 + rotateX 11° + y 48 +
+ * scale .95 → rest, 950ms ease.settle, stagger 80ms capped at index 5. Plain
+ * Animated transforms on the native driver; reduce-motion lands at rest.
+ * Memo'd so parent re-renders never touch a run that already happened.
+ */
+const StandUp = memo(function StandUp({
+  index,
+  style,
+  children,
+}: {
+  index: number;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  // Lazy state, not a ref — stable identity, clean under react-hooks/refs.
+  const [progress] = useState(() => new Animated.Value(0));
+  const [delayMs] = useState(() => Math.min(index, stagger.tilesCap) * stagger.tiles);
+
+  useEffect(() => {
+    let cancelled = false;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((reduced) => {
+        if (cancelled) return;
+        if (reduced) return progress.setValue(1);
+        Animated.timing(progress, {
+          toValue: 1,
+          duration: dur.standUp,
+          delay: delayMs,
+          easing: ease.settle,
+          useNativeDriver: true,
+        }).start();
+      })
+      // Query failed → land at rest, never hide content.
+      .catch(() => progress.setValue(1));
+    return () => {
+      cancelled = true;
+    };
+  }, [progress, delayMs]);
+
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: progress,
+          transform: [
+            { perspective: 1200 },
+            {
+              rotateX: progress.interpolate({ inputRange: [0, 1], outputRange: ['11deg', '0deg'] }),
+            },
+            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [48, 0] }) },
+            { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+});
+
+/** Section head: mono eyebrow over an Archivo title, optional inline action. */
+function SectionHeader({
+  eyebrow,
+  live = false,
+  title,
+  action,
+  onAction,
+}: {
+  eyebrow: string;
+  live?: boolean;
   title: string;
-  support?: string;
   action?: string;
   onAction?: () => void;
 }) {
-  const c = useBrandColors();
   return (
     <View style={styles.sectionHead}>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={[styles.sectionTitle, { color: c.text }]}>{title}</Text>
-        {!!support && <Text style={[styles.sectionSupport, { color: c.textSecondary }]}>{support}</Text>}
+      <View style={styles.sectionHeadText}>
+        <Eyebrow live={live}>{eyebrow}</Eyebrow>
+        <Text style={styles.sectionTitle}>{title}</Text>
       </View>
       {!!action && !!onAction && (
-        <Pressable onPress={onAction} hitSlop={10} accessibilityRole="button" accessibilityLabel={action}>
-          <View style={styles.inlineAction}>
-            <Text style={[styles.inlineActionText, { color: c.primary }]}>{action}</Text>
-            <Ionicons name="arrow-forward" size={14} color={c.primary} />
-          </View>
-        </Pressable>
+        <PressScale
+          onPress={onAction}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={action}
+          style={styles.inlineAction}
+        >
+          <Text style={styles.inlineActionText}>{action}</Text>
+          <Ionicons name="arrow-forward" size={14} color={Brand.blueSky} />
+        </PressScale>
       )}
     </View>
   );
 }
 
-/** Live-show card for the 2-column grid — real fields only. */
-function LiveCard({ show, width }: { show: ShowData; width: number }) {
-  const c = useBrandColors();
-  const height = Math.round(width * 1.25);
+/**
+ * Search pill — glass, mono placeholder. It's a link into the Search tab (the
+ * real input lives there); pressing shows the authAccent focus border.
+ */
+const SearchPill = memo(function SearchPill({ onPress }: { onPress: () => void }) {
+  const [focused, setFocused] = useState(false);
   return (
-    <Pressable
-      onPress={() => {
-        // Start minting the viewer token now so the Cloud Function round trip
-        // overlaps the screen transition instead of following it.
-        markShowTapped(String(show.id)); // start the clock a buyer would start
-        // The WHOLE join — token AND connect — begins here, overlapping the
-        // screen transition. The room screen adopts it mid-flight.
-        startJoin(String(show.id));
-        router.push({ pathname: '/live/[id]', params: { id: String(show.id) } });
-      }}
+    <PressScale
+      onPress={onPress}
+      onPressIn={() => setFocused(true)}
+      onPressOut={() => setFocused(false)}
+      accessibilityRole="search"
+      accessibilityLabel="Search live shows, products or sellers"
+      style={[styles.searchPill, focused && { borderColor: Brand.authAccent }]}
+    >
+      <Ionicons name="search-outline" size={18} color={Brand.mistSoft} />
+      <Text numberOfLines={1} style={styles.searchPlaceholder}>
+        Search shows · products · sellers
+      </Text>
+    </PressScale>
+  );
+});
+
+/** Live-show card — 16:10 thumb radius 18 inside a white/5% glass card. */
+function LiveCard({ show, width, onPress }: { show: ShowData; width: number; onPress: () => void }) {
+  const thumbH = Math.round(width * 0.625); // 16:10
+  return (
+    <PressScale
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Live show: ${show.name}${show.seller ? ` by ${show.seller}` : ''}`}
-      style={({ pressed }) => [
-        styles.liveCard,
-        { width, height, backgroundColor: c.backgroundElement, borderColor: c.border },
-        pressed && { opacity: 0.8 },
-      ]}
+      style={{ width }}
     >
-      {show.thumbnail ? (
-        <Image source={{ uri: show.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} />
-      ) : (
-        // No thumbnail on the doc — a quiet branded surface, never a stock photo.
-        <View style={styles.liveCardFallback}>
-          <Ionicons name="videocam-outline" size={28} color="rgba(159,180,216,0.4)" />
+      <GlassCard variant="card" radius={18}>
+        <View style={{ width: '100%', height: thumbH }}>
+          {show.thumbnail ? (
+            <Image
+              source={{ uri: show.thumbnail }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={120}
+            />
+          ) : (
+            // No thumbnail on the doc — a quiet branded surface, never a stock photo.
+            <View style={styles.liveThumbFallback}>
+              <Ionicons name="videocam-outline" size={26} color="rgba(159,180,216,0.4)" />
+            </View>
+          )}
+          <View style={styles.liveTag}>
+            <LivePulseDot color="#FFFFFF" size={5} />
+            <Text style={styles.liveTagText}>LIVE</Text>
+          </View>
         </View>
-      )}
-      <View style={styles.liveBadge}>
-        <View style={styles.liveDot} />
-        <Text style={styles.liveBadgeText}>LIVE</Text>
-      </View>
-      <View style={styles.liveCardScrim}>
-        <Text numberOfLines={1} style={styles.liveCardTitle}>{show.name}</Text>
-        <Text numberOfLines={1} style={styles.liveCardMeta}>
-          {show.seller ? `by @${show.seller}` : show.sellerName || 'Live show'}
-        </Text>
-      </View>
-    </Pressable>
+        <View style={styles.liveCardBody}>
+          <Text numberOfLines={1} style={styles.liveCardTitle}>
+            {show.name}
+          </Text>
+          <Text numberOfLines={1} style={styles.liveCardMeta}>
+            {show.seller ? `by @${show.seller}` : show.sellerName || 'Live show'}
+          </Text>
+        </View>
+      </GlassCard>
+    </PressScale>
   );
 }
 
 function LiveGridSkeleton({ cardWidth }: { cardWidth: number }) {
+  const h = Math.round(cardWidth * 0.625) + LIVE_CARD_BODY_H;
   const block = { backgroundColor: 'rgba(120,150,210,0.10)' };
   return (
     <View style={styles.liveGrid} accessibilityLabel="Loading live shows">
       {[0, 1].map((i) => (
-        <View key={i} style={[block, { width: cardWidth, height: cardWidth * 1.25, borderRadius: 14 }]} />
+        <View key={i} style={[block, { width: cardWidth, height: h, borderRadius: 18 }]} />
       ))}
     </View>
   );
 }
 
 export default function LiveScreen() {
-  const c = useBrandColors();
-  const { width } = useWindowDimensions();
+  const { width, height: winH } = useWindowDimensions();
   const isGuest = useIsGuest();
+  const requireAuth = useAuthGate();
   const { user } = useSession();
   const sessionUid = user?.uid ?? null;
-  const { shows, live, upcoming, loading, refreshing, error, fetchedAt: now, refresh } = useShows();
+  const { live, upcoming, loading, refreshing, error, fetchedAt: now, refresh } = useShows();
 
   const scrollRef = useRef<ScrollView>(null);
   const [upcomingY, setUpcomingY] = useState(0);
 
+  const heroHeight = Math.round(winH * 0.55);
   const gridCardWidth = Math.floor((width - Spacing.three * 2 - Spacing.two) / 2);
+  const liveCardHeight = Math.round(gridCardWidth * 0.625) + LIVE_CARD_BODY_H;
 
   // Genuinely-in-the-future scheduled shows only — a stale past timestamp
   // must never render as "starts in".
@@ -178,29 +304,8 @@ export default function LiveScreen() {
       .slice(0, 6);
   }, [upcoming, now]);
 
-  // Browse-more subset: categories that currently have real shows first, then
-  // the approved order. This is activity-informed ordering, not "trending".
-  const browseMore = useMemo(() => {
-    const active = new Set(shows.map((s) => s.category));
-    return [...CATEGORIES]
-      .sort((a, b) => (active.has(b) ? 1 : 0) - (active.has(a) ? 1 : 0))
-      .slice(0, 6);
-  }, [shows]);
-
-  // The compact rail is curated to artwork-backed categories; the full list
-  // (including icon-fallback ones) lives on the All Categories screen.
-  const railCategories = CATEGORIES.filter(hasArtwork).slice(0, 8);
   const liveShown = live.slice(0, 8);
 
-  // Warm the first live show while the buyer is still reading the list, so
-  // tapping it renders an already-connected stream instead of starting a
-  // ~3s token + handshake + keyframe sequence. One show only, Wi-Fi only, and
-  // it drops itself if unused — see lib/stream-join.
-  //
-  // Re-warms on every FOCUS, not just on mount. Opening a show CLAIMS the warm
-  // room (ownership moves to the viewer screen), so coming back to this tab
-  // left nothing warm — and because `firstLiveId` hadn't changed, a mount-only
-  // effect never re-ran. First open was fast, every one after it was slow.
   // First-run setup. Asked ONCE per install per account: the server records a
   // skip, so declining is remembered. Guests are never prompted — the app is
   // deliberately browsable signed-out.
@@ -223,11 +328,6 @@ export default function LiveScreen() {
     };
   }, [isGuest]);
 
-  // The first live card PLAYS its show (LiveCardPreview) instead of being
-  // speculatively warmed — the card holds the connection, so opening the show
-  // is a mode flip on live video, not a join. Never for the buyer's OWN show:
-  // a seller watching their own card would hold a viewer connection that
-  // fights their broadcast.
   // BOTH visible grid cards preview, not just the first — a buyer taps
   // whichever show looks good, and "the special fast card" is a trap nobody
   // can see. Never the buyer's own show (a seller watching their own card
@@ -245,340 +345,318 @@ export default function LiveScreen() {
       .map((s) => String(s.id))
   );
 
+  // The tap path for live cards. Guests route to sign-in ('watch'); members
+  // start the join warm-up so the Cloud Function round trip overlaps the
+  // screen transition instead of following it. Preview cards already HOLD
+  // the connection (or, on cellular, the room starts one) — no startJoin.
+  const openLiveShow = (id: string, alreadyWarm: boolean) => {
+    requireAuth('watch', () => {
+      markShowTapped(id); // start the clock a buyer would start
+      if (!alreadyWarm) startJoin(id);
+      router.push({ pathname: '/live/[id]', params: { id } });
+    });
+  };
+
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
-      {/* ── Header: shortcuts only — brand identity lives on the splash. ── */}
-      <View style={styles.header}>
-        <View style={styles.headerActions}>
-          {/* Real routes; no badges — there is no unread-count source wired here. */}
-          <Pressable
-            onPress={() => router.push('/inbox')}
-            accessibilityRole="button"
-            accessibilityLabel="Messages"
-            hitSlop={8}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="chatbubble-outline" size={20} color={c.textSecondary} />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/notifications')}
-            accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            hitSlop={8}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="notifications-outline" size={20} color={c.textSecondary} />
-          </Pressable>
-        </View>
-      </View>
-
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />
-        }
-      >
-        {/* ── Search — opens the real Search tab ─────────────────── */}
-        <Pressable
-          onPress={() => router.push('/browse')}
-          accessibilityRole="search"
-          accessibilityLabel="Search live shows, products or sellers"
-          style={({ pressed }) => [
-            styles.searchBar,
-            { backgroundColor: c.cardBackground, borderColor: c.borderStrong },
-            pressed && { opacity: 0.75 },
-          ]}
-        >
-          <Ionicons name="search-outline" size={19} color={c.textSecondary} />
-          <Text style={[styles.searchPlaceholder, { color: c.textSecondary }]}>
-            Search live shows, products or sellers
-          </Text>
-        </Pressable>
-
-        {/* ── Category rail (approved source) + All Categories ───── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.catRail}
-        >
-          {railCategories.map((cat) => (
-            <Pressable
-              key={cat}
-              onPress={() => router.push({ pathname: '/browse', params: { cat } })}
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        {/* ── Header: shortcuts only — brand identity lives on the splash. ── */}
+        <View style={styles.header}>
+          <View style={styles.headerActions}>
+            {/* Real routes; no badges — there is no unread-count source wired here. */}
+            <PressScale
+              onPress={() => requireAuth('inbox', () => router.push('/inbox'))}
               accessibilityRole="button"
-              accessibilityLabel={`Browse ${cat}`}
-              style={({ pressed }) => [styles.catTile, pressed && { opacity: 0.75 }]}
+              accessibilityLabel="Messages"
+              hitSlop={8}
+              style={styles.headerBtn}
             >
-              <View style={[styles.catImageWrap, { borderColor: c.border, backgroundColor: ART_BG }]}>
-                <Image
-                  source={categoryArtwork(cat) ?? undefined}
-                  style={styles.catImage}
-                  contentFit="contain"
-                  transition={120}
-                />
+              <Ionicons name="chatbubble-outline" size={18} color={Brand.slate400} />
+            </PressScale>
+            <PressScale
+              onPress={() => requireAuth('notifications', () => router.push('/notifications'))}
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+              hitSlop={8}
+              style={styles.headerBtn}
+            >
+              <Ionicons name="notifications-outline" size={18} color={Brand.slate400} />
+            </PressScale>
+          </View>
+        </View>
+
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={Brand.blueSky} />
+          }
+        >
+          {/* ── Hero (isolated: all motion is UI-thread/native driver) ── */}
+          <HeroOrbit height={heroHeight} />
+
+          {/* ── Search — opens the real Search tab; guests → sign-in ── */}
+          <FadeUp index={1} style={styles.searchWrap}>
+            <SearchPill onPress={() => requireAuth('search', () => router.push('/browse'))} />
+          </FadeUp>
+
+          {/* ── Live now ───────────────────────────────────────────── */}
+          <FadeUp index={2} style={styles.section}>
+            <SectionHeader
+              eyebrow="Happening now"
+              live
+              title="Live now"
+              action={live.length > 8 ? 'See all' : undefined}
+              onAction={
+                live.length > 8
+                  ? () => requireAuth('search', () => router.push('/browse'))
+                  : undefined
+              }
+            />
+
+            {!!error && (
+              <View style={styles.errorRow}>
+                <Ionicons name="cloud-offline-outline" size={17} color={Brand.dangerSoft} />
+                <Text style={styles.errorText}>{error}</Text>
+                <PressScale onPress={refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry">
+                  <Text style={styles.retry}>Retry</Text>
+                </PressScale>
               </View>
-              <Text numberOfLines={2} style={[styles.catLabel, { color: c.textSecondary }]}>
-                {cat}
-              </Text>
-            </Pressable>
-          ))}
-          <Pressable
-            onPress={() => router.push('/categories')}
-            accessibilityRole="button"
-            accessibilityLabel="All categories"
-            style={({ pressed }) => [styles.catTile, pressed && { opacity: 0.75 }]}
-          >
-            <View
-              style={[
-                styles.catImageWrap,
-                styles.allCatTile,
-                { borderColor: c.primary, backgroundColor: 'rgba(74,143,229,0.12)' },
-              ]}
-            >
-              <Ionicons name="grid-outline" size={22} color={c.primary} />
-            </View>
-            <Text numberOfLines={2} style={[styles.catLabel, { color: c.primary }]}>
-              All Categories
-            </Text>
-          </Pressable>
-        </ScrollView>
+            )}
 
-        {/* ── Live now ───────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <SectionHeader
-            title="Live now"
-            support="Join live shows, bid and buy in real time"
-            action={live.length > 8 ? 'See all' : undefined}
-            onAction={live.length > 8 ? () => router.push('/browse') : undefined}
-          />
+            {loading ? (
+              <LiveGridSkeleton cardWidth={gridCardWidth} />
+            ) : liveShown.length > 0 ? (
+              <View style={styles.liveGrid}>
+                {liveShown.map((s) =>
+                  previewIds.has(String(s.id)) ? (
+                    <LiveCardPreview
+                      key={String(s.id)}
+                      show={s}
+                      width={gridCardWidth}
+                      height={liveCardHeight}
+                      renderVideo={liveTabFocused}
+                      onPress={() => openLiveShow(String(s.id), true)}
+                    />
+                  ) : (
+                    <LiveCard
+                      key={String(s.id)}
+                      show={s}
+                      width={gridCardWidth}
+                      onPress={() => openLiveShow(String(s.id), false)}
+                    />
+                  )
+                )}
+              </View>
+            ) : !error ? (
+              <GlassCard variant="card" radius={16} style={styles.liveEmpty}>
+                <View style={styles.liveEmptyRing}>
+                  <Ionicons name="radio-outline" size={22} color={Brand.blueSky} />
+                </View>
+                <Text style={styles.liveEmptyTitle}>No one is live right now</Text>
+                <Text style={styles.liveEmptyBody}>
+                  Shows will appear here as soon as sellers start streaming.
+                </Text>
+                <View style={styles.liveEmptyActions}>
+                  <PressScale
+                    onPress={() => requireAuth('browse', () => router.push('/categories'))}
+                    accessibilityRole="button"
+                    accessibilityLabel="Browse categories"
+                    style={styles.inlineAction}
+                  >
+                    <Text style={styles.inlineActionText}>Browse categories</Text>
+                    <Ionicons name="arrow-forward" size={14} color={Brand.blueSky} />
+                  </PressScale>
+                  {soon.length > 0 && (
+                    <PressScale
+                      onPress={() => scrollRef.current?.scrollTo({ y: upcomingY, animated: true })}
+                      accessibilityRole="button"
+                      accessibilityLabel="View upcoming shows"
+                      style={styles.inlineAction}
+                    >
+                      <Text style={styles.inlineActionText}>View upcoming shows</Text>
+                      <Ionicons name="arrow-forward" size={14} color={Brand.blueSky} />
+                    </PressScale>
+                  )}
+                </View>
+              </GlassCard>
+            ) : null}
+          </FadeUp>
 
-          {!!error && (
-            <View style={[styles.errorRow, { borderColor: 'rgba(230,57,70,0.4)' }]}>
-              <Ionicons name="cloud-offline-outline" size={17} color={c.danger} />
-              <Text style={[styles.errorText, { color: c.text }]}>{error}</Text>
-              <Pressable onPress={refresh} hitSlop={8}>
-                <Text style={[styles.retry, { color: c.primary }]}>Retry</Text>
-              </Pressable>
+          {/* ── Upcoming shows — omitted entirely when none exist ──── */}
+          {soon.length > 0 && (
+            <View onLayout={(e) => setUpcomingY(e.nativeEvent.layout.y)}>
+              <FadeUp index={3} style={styles.section}>
+                <SectionHeader eyebrow="Starting soon" title="Upcoming shows" />
+                <GlassCard variant="card" radius={16} style={styles.upList}>
+                  {soon.map((s, i) => {
+                    const rel = startsIn(s.scheduled_time as string, now);
+                    return (
+                      <PressScale
+                        key={String(s.id)}
+                        onPress={() =>
+                          requireAuth('remind', () =>
+                            router.push({ pathname: '/show/[id]', params: { id: String(s.id) } })
+                          )
+                        }
+                        accessibilityRole="button"
+                        accessibilityLabel={`${s.name} by ${s.seller}, ${whenLabel(s.scheduled_time as string)}`}
+                        style={[styles.upRow, i > 0 && styles.upRowDivider]}
+                      >
+                        {s.thumbnail ? (
+                          <Image source={{ uri: s.thumbnail }} style={styles.upThumb} contentFit="cover" />
+                        ) : (
+                          <View style={[styles.upThumb, styles.upThumbFallback]}>
+                            <Ionicons name="videocam-outline" size={17} color="rgba(159,180,216,0.5)" />
+                          </View>
+                        )}
+                        <View style={styles.upBody}>
+                          <Text numberOfLines={1} style={styles.upTitle}>
+                            {s.name}
+                          </Text>
+                          <Text numberOfLines={1} style={styles.upMeta}>
+                            by @{s.seller}
+                          </Text>
+                        </View>
+                        <View style={styles.upRight}>
+                          <Text style={styles.upWhen}>{whenLabel(s.scheduled_time as string)}</Text>
+                          {!!rel && <Text style={styles.upRel}>{rel}</Text>}
+                        </View>
+                      </PressScale>
+                    );
+                  })}
+                </GlassCard>
+              </FadeUp>
             </View>
           )}
 
-          {loading ? (
-            <LiveGridSkeleton cardWidth={gridCardWidth} />
-          ) : liveShown.length > 0 ? (
-            <View style={styles.liveGrid}>
-              {liveShown.map((s) =>
-                previewIds.has(String(s.id)) ? (
-                  <LiveCardPreview
-                    key={String(s.id)}
-                    show={s}
-                    width={gridCardWidth}
-                    height={Math.round(gridCardWidth * 1.25)}
-                    renderVideo={liveTabFocused}
-                    onPress={() => {
-                      markShowTapped(String(s.id));
-                      // No startJoin: the card already holds the connection
-                      // (or, on cellular, the room screen starts one).
-                      router.push({ pathname: '/live/[id]', params: { id: String(s.id) } });
-                    }}
-                  />
-                ) : (
-                  <LiveCard key={String(s.id)} show={s} width={gridCardWidth} />
-                )
-              )}
-            </View>
-          ) : !error ? (
-            <View style={[styles.liveEmpty, { borderColor: c.border, backgroundColor: c.cardBackground }]}>
-              <View style={[styles.liveEmptyRing, { borderColor: 'rgba(120,150,210,0.24)' }]}>
-                <Ionicons name="radio-outline" size={22} color={c.primary} />
-              </View>
-              <Text style={[styles.liveEmptyTitle, { color: c.text }]}>No one is live right now</Text>
-              <Text style={[styles.liveEmptyBody, { color: c.textSecondary }]}>
-                Shows will appear here as soon as sellers start streaming.
-              </Text>
-              <View style={styles.liveEmptyActions}>
-                <Pressable
-                  onPress={() => router.push('/categories')}
-                  accessibilityRole="button"
-                  accessibilityLabel="Browse categories"
-                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-                >
-                  <View style={styles.inlineAction}>
-                    <Text style={[styles.inlineActionText, { color: c.primary }]}>Browse categories</Text>
-                    <Ionicons name="arrow-forward" size={14} color={c.primary} />
-                  </View>
-                </Pressable>
-                {soon.length > 0 && (
-                  <Pressable
-                    onPress={() => scrollRef.current?.scrollTo({ y: upcomingY, animated: true })}
+          {/* ── Category bento — the site tile recipe, stand-up entrance ── */}
+          <View style={styles.section}>
+            <FadeUp index={4}>
+              <SectionHeader
+                eyebrow="Any & all of it"
+                title="Shop by category"
+                action="See all"
+                onAction={() => requireAuth('browse', () => router.push('/categories'))}
+              />
+            </FadeUp>
+            <View style={styles.bentoGrid}>
+              {BENTO_TILES.map((tile, i) => (
+                <StandUp key={tile.label} index={i} style={{ width: gridCardWidth }}>
+                  <PressScale
+                    onPress={() =>
+                      requireAuth('browse', () =>
+                        router.push({ pathname: '/browse', params: { cat: tile.cat } })
+                      )
+                    }
                     accessibilityRole="button"
-                    accessibilityLabel="View upcoming shows"
-                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                    accessibilityLabel={`Browse ${tile.label}`}
                   >
-                    <View style={styles.inlineAction}>
-                      <Text style={[styles.inlineActionText, { color: c.primary }]}>View upcoming shows</Text>
-                      <Ionicons name="arrow-forward" size={14} color={c.primary} />
-                    </View>
-                  </Pressable>
-                )}
-              </View>
-            </View>
-          ) : null}
-        </View>
-
-        {/* ── Browse more categories ─────────────────────────────── */}
-        <View style={styles.section}>
-          <SectionHeader
-            title="Browse more categories"
-            action="See all"
-            onAction={() => router.push('/categories')}
-          />
-          <View style={styles.browseGrid}>
-            {browseMore.map((cat) => {
-              const art = categoryArtwork(cat);
-              return (
-                <Pressable
-                  key={cat}
-                  onPress={() => router.push({ pathname: '/browse', params: { cat } })}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Browse ${cat}`}
-                  style={({ pressed }) => [
-                    styles.browseCard,
-                    { width: gridCardWidth, backgroundColor: c.cardBackground, borderColor: c.border },
-                    pressed && { backgroundColor: 'rgba(120,150,210,0.09)' },
-                  ]}
-                >
-                  {art ? (
-                    <View style={[styles.browseImage, { backgroundColor: ART_BG }]}>
-                      <Image source={art} style={styles.browseArt} contentFit="contain" transition={120} />
-                    </View>
-                  ) : (
-                    // Controlled fallback: dark tile + one line icon, never a stock photo.
-                    <View style={[styles.browseImage, styles.browseFallback, { backgroundColor: ART_BG }]}>
-                      <Ionicons name={categoryIcon(cat)} size={22} color={c.primary} />
-                    </View>
-                  )}
-                  <View style={styles.browseBody}>
-                    <Text numberOfLines={2} style={[styles.browseName, { color: c.text }]}>{cat}</Text>
-                    <View style={styles.inlineAction}>
-                      <Text style={[styles.browseAction, { color: c.primary }]}>Browse</Text>
-                      <Ionicons name="chevron-forward" size={13} color={c.primary} />
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* ── Upcoming shows — omitted entirely when none exist ──── */}
-        {soon.length > 0 && (
-          <View style={styles.section} onLayout={(e) => setUpcomingY(e.nativeEvent.layout.y)}>
-            <SectionHeader title="Upcoming shows" support="Shows starting soon" />
-            <View style={[styles.upList, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
-              {soon.map((s, i) => {
-                const rel = startsIn(s.scheduled_time as string, now);
-                return (
-                  <Pressable
-                    key={String(s.id)}
-                    onPress={() => router.push({ pathname: '/show/[id]', params: { id: String(s.id) } })}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${s.name} by ${s.seller}, ${whenLabel(s.scheduled_time as string)}`}
-                    style={({ pressed }) => [
-                      styles.upRow,
-                      i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
-                      pressed && { backgroundColor: 'rgba(120,150,210,0.07)' },
-                    ]}
-                  >
-                    {s.thumbnail ? (
-                      <Image source={{ uri: s.thumbnail }} style={styles.upThumb} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.upThumb, styles.upThumbFallback, { backgroundColor: c.backgroundElement }]}>
-                        <Ionicons name="videocam-outline" size={17} color="rgba(159,180,216,0.5)" />
+                    <View style={[styles.bentoCard, { height: Math.round(gridCardWidth * 1.06) }]}>
+                      <Image source={tile.src} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
+                      {/* Bottom scrim: black/70 → transparent. */}
+                      <LinearGradient
+                        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.7)']}
+                        style={styles.bentoScrim}
+                      />
+                      {/* Frosted bottom strip: white/5% + top hairline. */}
+                      <View style={styles.bentoStrip}>
+                        <Text numberOfLines={1} style={styles.bentoLabel}>
+                          {tile.label}
+                        </Text>
                       </View>
-                    )}
-                    <View style={styles.upBody}>
-                      <Text numberOfLines={1} style={[styles.upTitle, { color: c.text }]}>{s.name}</Text>
-                      <Text numberOfLines={1} style={[styles.upMeta, { color: c.textSecondary }]}>
-                        by @{s.seller}
-                      </Text>
                     </View>
-                    <View style={styles.upRight}>
-                      <Text style={[styles.upWhen, { color: c.textSecondary }]}>
-                        {whenLabel(s.scheduled_time as string)}
-                      </Text>
-                      {!!rel && <Text style={[styles.upRel, { color: c.primary }]}>{rel}</Text>}
-                    </View>
-                  </Pressable>
-                );
-              })}
+                  </PressScale>
+                </StandUp>
+              ))}
             </View>
           </View>
-        )}
 
-        {isGuest && (
-          <Text style={[styles.guestNote, { color: c.textFaint }]}>
-            You’re browsing as a guest. Sign in to bid, buy or chat.
-          </Text>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+          {/* ── Guest close — the only in-flow sign-in ask on home ──── */}
+          {isGuest && (
+            <FadeUp index={5} style={styles.guestBlock}>
+              <Text style={styles.guestNote}>
+                You’re browsing as a guest. Sign in to watch shows, bid, buy or chat.
+              </Text>
+              <GradientCTA
+                title="Sign in"
+                arrow
+                onPress={() => router.push('/sign-in')}
+                accessibilityLabel="Sign in to Any and All"
+                style={styles.guestCta}
+              />
+            </FadeUp>
+          )}
+
+          {/* Footer breathing room. */}
+          <View style={{ height: Spacing.five }} />
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingVertical: Spacing.one + 2,
   },
-  headerActions: { marginLeft: 'auto', flexDirection: 'row', gap: Spacing.one },
-  headerBtn: { padding: Spacing.one, minWidth: 34, alignItems: 'center' },
+  headerActions: { marginLeft: 'auto', flexDirection: 'row', gap: Spacing.two },
+  headerBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   scroll: { paddingBottom: Spacing.five, gap: Spacing.four },
   section: { gap: Spacing.two + Spacing.one },
   sectionHead: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: Spacing.two,
     paddingHorizontal: Spacing.three,
   },
-  sectionTitle: { fontSize: 17, fontFamily: Fonts.sansSemiBold },
-  sectionSupport: { fontSize: 12.5, fontFamily: Fonts.sans },
-  inlineAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  inlineActionText: { fontSize: 13, fontFamily: Fonts.sansMedium },
+  sectionHeadText: { flex: 1, gap: 7 },
+  sectionTitle: {
+    color: Brand.text,
+    fontSize: 24,
+    fontFamily: Fonts.displayMedium,
+    letterSpacing: -0.5,
+  },
+  inlineAction: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingBottom: 3 },
+  inlineActionText: { fontSize: 13, fontFamily: Fonts.uiSemiBold, color: Brand.blueSky },
 
-  searchBar: {
+  searchWrap: { paddingHorizontal: Spacing.three },
+  searchPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    marginHorizontal: Spacing.three,
+    gap: Spacing.two + 2,
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: Spacing.three,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 999,
+    paddingHorizontal: Spacing.three + 2,
     minHeight: 46,
   },
-  searchPlaceholder: { fontSize: 14, fontFamily: Fonts.sans },
-
-  catRail: { paddingHorizontal: Spacing.three, gap: Spacing.two + Spacing.one },
-  catTile: { width: 84, alignItems: 'center', gap: 6 },
-  catImageWrap: {
-    width: 84,
-    height: 64,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
+  searchPlaceholder: {
+    flex: 1,
+    color: Brand.mistSoft,
+    fontFamily: Fonts.mono,
+    fontSize: 12.5,
+    letterSpacing: 0.3,
   },
-  // ~78% of the tile keeps the visible object near half the card height.
-  catImage: { width: '78%', height: '78%' },
-  allCatTile: { alignItems: 'center', justifyContent: 'center' },
-  catLabel: { fontSize: 11, fontFamily: Fonts.sansMedium, textAlign: 'center', lineHeight: 14 },
 
   liveGrid: {
     flexDirection: 'row',
@@ -586,38 +664,45 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingHorizontal: Spacing.three,
   },
-  liveCard: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
-  liveCardFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  liveBadge: {
+  liveThumbFallback: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Brand.ink800,
+  },
+  liveTag: {
     position: 'absolute',
     top: 8,
     left: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#E63946',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    gap: 5,
+    backgroundColor: Brand.liveRose,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#FFFFFF' },
-  liveBadgeText: { color: '#FFFFFF', fontSize: 10, fontFamily: Fonts.sansSemiBold, letterSpacing: 0.5 },
-  liveCardScrim: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 10,
-    gap: 1,
-    backgroundColor: 'rgba(3,7,18,0.72)',
+  liveTagText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontFamily: Fonts.uiExtraBold,
+    letterSpacing: 1,
   },
-  liveCardTitle: { color: '#FFFFFF', fontSize: 13.5, fontFamily: Fonts.sansSemiBold },
-  liveCardMeta: { color: 'rgba(200,214,238,0.85)', fontSize: 11.5, fontFamily: Fonts.sans },
+  liveCardBody: {
+    height: LIVE_CARD_BODY_H,
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 12,
+  },
+  liveCardTitle: { color: Brand.text, fontSize: 13.5, fontFamily: Fonts.uiSemiBold },
+  liveCardMeta: { color: Brand.slate400, fontSize: 11.5, fontFamily: Fonts.ui },
 
   liveEmpty: {
     marginHorizontal: Spacing.three,
-    borderWidth: 1,
-    borderRadius: 16,
     alignItems: 'center',
     gap: Spacing.one + 2,
     paddingVertical: Spacing.three + Spacing.one,
@@ -628,12 +713,19 @@ const styles = StyleSheet.create({
     height: 46,
     borderRadius: 23,
     borderWidth: 1,
+    borderColor: 'rgba(120,150,210,0.24)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
   },
-  liveEmptyTitle: { fontSize: 15.5, fontFamily: Fonts.sansSemiBold },
-  liveEmptyBody: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 18, textAlign: 'center' },
+  liveEmptyTitle: { color: Brand.text, fontSize: 15.5, fontFamily: Fonts.uiSemiBold },
+  liveEmptyBody: {
+    color: Brand.slate400,
+    fontSize: 13,
+    fontFamily: Fonts.ui,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   liveEmptyActions: {
     flexDirection: 'row',
     gap: Spacing.four,
@@ -642,35 +734,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  browseGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-  },
-  browseCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: Spacing.two,
-  },
-  browseImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 10,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  browseArt: { width: '84%', height: '84%' },
-  browseFallback: { alignItems: 'center', justifyContent: 'center' },
-  browseBody: { flex: 1, gap: 3 },
-  browseName: { fontSize: 13, fontFamily: Fonts.sansSemiBold, lineHeight: 17 },
-  browseAction: { fontSize: 12, fontFamily: Fonts.sansMedium },
-
-  upList: { marginHorizontal: Spacing.three, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  upList: { marginHorizontal: Spacing.three },
   upRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -679,14 +743,55 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two + 2,
     minHeight: 58,
   },
+  upRowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Brand.hairlineWhite,
+  },
   upThumb: { width: 42, height: 42, borderRadius: 10 },
-  upThumbFallback: { alignItems: 'center', justifyContent: 'center' },
+  upThumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Brand.ink800,
+  },
   upBody: { flex: 1, gap: 1 },
-  upTitle: { fontSize: 14, fontFamily: Fonts.sansSemiBold },
-  upMeta: { fontSize: 12, fontFamily: Fonts.sans },
+  upTitle: { color: Brand.text, fontSize: 14, fontFamily: Fonts.uiSemiBold },
+  upMeta: { color: Brand.slate400, fontSize: 12, fontFamily: Fonts.ui },
   upRight: { alignItems: 'flex-end', gap: 2 },
-  upWhen: { fontSize: 11.5, fontFamily: Fonts.sans },
-  upRel: { fontSize: 11.5, fontFamily: Fonts.sansMedium },
+  upWhen: { color: Brand.slate400, fontSize: 11.5, fontFamily: Fonts.ui },
+  upRel: { color: Brand.blueSky, fontSize: 11.5, fontFamily: Fonts.uiSemiBold },
+
+  bentoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+  },
+  bentoCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: Brand.ink800,
+    overflow: 'hidden',
+  },
+  bentoScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '55%',
+  },
+  bentoStrip: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderTopWidth: 1,
+    borderTopColor: Brand.hairlineWhite,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  bentoLabel: { color: Brand.text, fontSize: 13.5, fontFamily: Fonts.uiBold },
 
   errorRow: {
     flexDirection: 'row',
@@ -694,17 +799,24 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     marginHorizontal: Spacing.three,
     borderWidth: 1,
+    borderColor: 'rgba(230,57,70,0.4)',
     borderRadius: 10,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
   },
-  errorText: { flex: 1, fontSize: 13, fontFamily: Fonts.sans },
-  retry: { fontSize: 13, fontFamily: Fonts.sansSemiBold },
+  errorText: { flex: 1, color: Brand.text, fontSize: 13, fontFamily: Fonts.ui },
+  retry: { color: Brand.blueSky, fontSize: 13, fontFamily: Fonts.uiSemiBold },
 
-  guestNote: {
-    fontSize: 12,
-    fontFamily: Fonts.sans,
-    textAlign: 'center',
+  guestBlock: {
+    gap: Spacing.two + Spacing.one,
     paddingHorizontal: Spacing.four,
+    alignItems: 'center',
   },
+  guestNote: {
+    color: Brand.mistFaint,
+    fontSize: 12,
+    fontFamily: Fonts.ui,
+    textAlign: 'center',
+  },
+  guestCta: { alignSelf: 'stretch', marginHorizontal: Spacing.three },
 });

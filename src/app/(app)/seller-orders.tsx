@@ -12,6 +12,7 @@
 // returned here — city/State/PIN is enough for the seller to recognise the
 // order. The full address rides on the courier label only.
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as WebBrowser from 'expo-web-browser';
@@ -29,9 +30,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PageAtmosphere } from '@/components/brand/page-atmosphere';
+import { PressScale } from '@/components/brand/press-scale';
 import { GuestPrompt } from '@/components/guest-prompt';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, CtaGradientShell, Fonts, Spacing } from '@/constants/theme';
 import { useAuthStatus } from '@/lib/auth-gate';
 import { humanizeStatus } from '@/lib/commerce';
 import { storage } from '@/lib/firebase';
@@ -97,17 +100,19 @@ export default function SellerOrdersScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top']}>
+    <View style={styles.root}>
+      <PageAtmosphere />
+      <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/seller-tools'))}
           accessibilityRole="button"
           accessibilityLabel="Back"
           hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={22} color={c.text} />
-        </Pressable>
+        </PressScale>
         <Text style={[styles.topTitle, { color: c.text }]}>Orders & shipments</Text>
       </View>
 
@@ -137,25 +142,22 @@ export default function SellerOrdersScreen() {
           )}
 
           {!pickupReady && (
-            <Pressable
+            <PressScale
               onPress={() => router.push('/shipping-settings')}
               accessibilityRole="button"
               accessibilityLabel="Set up your pickup address"
-              style={({ pressed }) => [
-                styles.setupBar,
-                { borderColor: 'rgba(255,196,107,0.35)', opacity: pressed ? 0.8 : 1 },
-              ]}
+              style={[styles.setupBar, { borderColor: 'rgba(255,196,107,0.35)' }]}
             >
               <Ionicons name="alert-circle-outline" size={17} color="#FFC46B" />
               <Text style={[styles.setupText, { color: c.text }]}>
                 Add your pickup address before booking couriers — tap to set it up.
               </Text>
               <Ionicons name="chevron-forward" size={15} color={c.textFaint} />
-            </Pressable>
+            </PressScale>
           )}
 
           {orders !== null && orders.length === 0 && !error && (
-            <View style={[styles.empty, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+            <View style={styles.empty}>
               <Ionicons name="cube-outline" size={32} color={c.textFaint} />
               <Text style={[styles.emptyTitle, { color: c.text }]}>No orders yet</Text>
               <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
@@ -169,7 +171,8 @@ export default function SellerOrdersScreen() {
           ))}
         </ScrollView>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -309,7 +312,7 @@ function OrderCard({
       : stage ? '#7CE0A8' : paid ? c.primary : statusMeta.tone === 'bad' ? c.danger : statusMeta.tone === 'warn' ? '#FFC46B' : c.textSecondary;
 
   return (
-    <View style={[styles.card, { backgroundColor: c.cardBackground, borderColor: c.border }]}>
+    <View style={styles.card}>
       <View style={styles.cardHead}>
         <View style={styles.cardHeadText}>
           <Text style={[styles.cardTitle, { color: c.text }]} numberOfLines={2}>
@@ -335,10 +338,10 @@ function OrderCard({
 
       {/* Booked shipment detail */}
       {!!shipment?.awbCode && (
-        <View style={[styles.awbRow, { borderTopColor: c.border }]}>
+        <View style={[styles.awbRow, { borderTopColor: Brand.hairlineWhite }]}>
           <Text style={[styles.awbText, { color: c.textSecondary }]}>
             {shipment.courierName || 'Courier'} · AWB{' '}
-            <Text style={{ color: c.text, fontFamily: Fonts.sansSemiBold }}>{shipment.awbCode}</Text>
+            <Text style={{ color: c.text, fontFamily: Fonts.mono }}>{shipment.awbCode}</Text>
           </Text>
           {!!shipment.labelUrl && (
             <Pressable
@@ -439,38 +442,40 @@ function OrderCard({
       {/* Actions */}
       <View style={styles.actions}>
         {paid && !shipment?.awbCode && (
-          <Pressable
+          <PressScale
             onPress={() => run('ship')}
             disabled={busy !== null || !pickupReady}
             accessibilityRole="button"
             accessibilityLabel={shipment ? 'Resume courier booking' : 'Ship this order'}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              {
-                backgroundColor: c.cta,
-                opacity: pressed || busy !== null || !pickupReady ? 0.6 : 1,
-              },
-            ]}
+            style={[styles.actionBtn, (busy !== null || !pickupReady) && { opacity: 0.6 }]}
           >
-            {busy === 'ship' ? (
-              <ActivityIndicator size="small" color={c.ctaText} />
-            ) : (
-              <Text style={[styles.actionText, { color: c.ctaText }]}>
-                {shipment ? 'Resume booking' : 'Ship this order'}
-              </Text>
-            )}
-          </Pressable>
+            <LinearGradient
+              colors={[...CtaGradientShell]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.actionFill}
+            >
+              {busy === 'ship' ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={[styles.actionText, { color: '#FFFFFF' }]}>
+                  {shipment ? 'Resume booking' : 'Ship this order'}
+                </Text>
+              )}
+            </LinearGradient>
+          </PressScale>
         )}
         {!!shipment?.awbCode && shipment.status !== 'pickup_requested' && (
-          <Pressable
+          <PressScale
             onPress={() => run('pickup')}
             disabled={busy !== null}
             accessibilityRole="button"
             accessibilityLabel="Request pickup"
-            style={({ pressed }) => [
+            style={[
               styles.actionBtn,
               styles.actionGhost,
-              { borderColor: c.borderStrong, opacity: pressed || busy !== null ? 0.6 : 1 },
+              { borderColor: Brand.hairline },
+              busy !== null && { opacity: 0.6 },
             ]}
           >
             {busy === 'pickup' ? (
@@ -478,18 +483,19 @@ function OrderCard({
             ) : (
               <Text style={[styles.actionText, { color: c.text }]}>Request pickup</Text>
             )}
-          </Pressable>
+          </PressScale>
         )}
         {!!shipment?.awbCode && (
-          <Pressable
+          <PressScale
             onPress={() => run('track')}
             disabled={busy !== null}
             accessibilityRole="button"
             accessibilityLabel="Track shipment"
-            style={({ pressed }) => [
+            style={[
               styles.actionBtn,
               styles.actionGhost,
-              { borderColor: c.border, opacity: pressed || busy !== null ? 0.6 : 1 },
+              { borderColor: Brand.hairlineWhite },
+              busy !== null && { opacity: 0.6 },
             ]}
           >
             {busy === 'track' ? (
@@ -497,7 +503,7 @@ function OrderCard({
             ) : (
               <Text style={[styles.actionText, { color: c.textSecondary }]}>Track</Text>
             )}
-          </Pressable>
+          </PressScale>
         )}
         {/* Seller fallback for self-ship/COD/missed webhooks: any PAID order
             without a delivered stamp can be marked delivered by the seller —
@@ -506,15 +512,16 @@ function OrderCard({
             courier webhook never fires. The confirm dialog owns the "starts
             the buyer's 24h window" consequence. */}
         {paid && !order.deliveredAt && (
-          <Pressable
+          <PressScale
             onPress={confirmMarkDelivered}
             disabled={busy !== null}
             accessibilityRole="button"
             accessibilityLabel="Mark this order as delivered"
-            style={({ pressed }) => [
+            style={[
               styles.actionBtn,
               styles.actionGhost,
-              { borderColor: c.borderStrong, opacity: pressed || busy !== null ? 0.6 : 1 },
+              { borderColor: Brand.hairline },
+              busy !== null && { opacity: 0.6 },
             ]}
           >
             {busy === 'delivered' ? (
@@ -522,7 +529,7 @@ function OrderCard({
             ) : (
               <Text style={[styles.actionText, { color: c.text }]}>Mark as delivered</Text>
             )}
-          </Pressable>
+          </PressScale>
         )}
       </View>
     </View>
@@ -578,6 +585,7 @@ function DisputeVideoPlayer({ url }: { url: string }) {
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Brand.ink950 },
   safe: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -588,7 +596,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.sansSemiBold },
+  topTitle: { flex: 1, fontSize: 19, fontFamily: Fonts.displayMedium, letterSpacing: -0.5 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   scroll: { padding: Spacing.three, paddingTop: Spacing.one, gap: Spacing.two, paddingBottom: 90 },
@@ -599,7 +607,7 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     backgroundColor: 'rgba(229,72,77,0.08)',
   },
-  errorText: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
+  errorText: { fontSize: 13, fontFamily: Fonts.ui, lineHeight: 19 },
 
   setupBar: {
     flexDirection: 'row',
@@ -610,23 +618,32 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     backgroundColor: 'rgba(255,196,107,0.07)',
   },
-  setupText: { flex: 1, fontSize: 13, fontFamily: Fonts.sansMedium, lineHeight: 18 },
+  setupText: { flex: 1, fontSize: 13, fontFamily: Fonts.uiMedium, lineHeight: 18 },
 
   empty: {
     borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 16,
     padding: Spacing.four,
     alignItems: 'center',
     gap: Spacing.two,
   },
-  emptyTitle: { fontSize: 16, fontFamily: Fonts.sansSemiBold },
-  emptyBody: { fontSize: 13.5, fontFamily: Fonts.sans, lineHeight: 20, textAlign: 'center', maxWidth: 300 },
+  emptyTitle: { fontSize: 16, fontFamily: Fonts.uiSemiBold },
+  emptyBody: { fontSize: 13.5, fontFamily: Fonts.ui, lineHeight: 20, textAlign: 'center', maxWidth: 300 },
 
-  card: { borderWidth: 1, borderRadius: 16, padding: Spacing.three, gap: Spacing.two },
+  card: {
+    borderWidth: 1,
+    borderColor: Brand.hairlineWhite,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
   cardHead: { flexDirection: 'row', gap: Spacing.two },
   cardHeadText: { flex: 1, gap: 2 },
-  cardTitle: { fontSize: 14.5, fontFamily: Fonts.sansSemiBold, lineHeight: 20 },
-  cardMeta: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  cardTitle: { fontSize: 14.5, fontFamily: Fonts.uiSemiBold, lineHeight: 20 },
+  cardMeta: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
   pill: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -634,7 +651,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 3,
   },
-  pillText: { fontSize: 10.5, fontFamily: Fonts.sansSemiBold },
+  pillText: { fontSize: 10.5, fontFamily: Fonts.uiSemiBold },
 
   awbRow: {
     flexDirection: 'row',
@@ -644,10 +661,10 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: Spacing.two,
   },
-  awbText: { flex: 1, fontSize: 12.5, fontFamily: Fonts.sans },
-  labelLink: { fontSize: 12.5, fontFamily: Fonts.sansSemiBold, paddingVertical: 4 },
-  trackingText: { fontSize: 12.5, fontFamily: Fonts.sansMedium },
-  cardError: { fontSize: 12.5, fontFamily: Fonts.sans, lineHeight: 18 },
+  awbText: { flex: 1, fontSize: 12.5, fontFamily: Fonts.ui },
+  labelLink: { fontSize: 12.5, fontFamily: Fonts.uiSemiBold, paddingVertical: 4 },
+  trackingText: { fontSize: 12.5, fontFamily: Fonts.uiMedium },
+  cardError: { fontSize: 12.5, fontFamily: Fonts.ui, lineHeight: 18 },
 
   // ── Dispute detail ──
   disputeBox: {
@@ -658,20 +675,31 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(248,113,113,0.06)',
   },
   disputeHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  disputeTitle: { flex: 1, fontSize: 13.5, fontFamily: Fonts.sansSemiBold, lineHeight: 18 },
-  disputeNote: { fontSize: 13, fontFamily: Fonts.sans, lineHeight: 19 },
-  disputeMeta: { fontSize: 12, fontFamily: Fonts.sans, lineHeight: 17 },
+  disputeTitle: { flex: 1, fontSize: 13.5, fontFamily: Fonts.uiSemiBold, lineHeight: 18 },
+  disputeNote: { fontSize: 13, fontFamily: Fonts.ui, lineHeight: 19 },
+  disputeMeta: { fontSize: 12, fontFamily: Fonts.ui, lineHeight: 17 },
   disputeVideo: { width: '100%', height: 220, borderRadius: 10, backgroundColor: '#000' },
   videoLoading: { paddingVertical: Spacing.two },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   actionBtn: {
-    borderRadius: 999,
-    paddingHorizontal: Spacing.three + Spacing.one,
+    borderRadius: 13,
     minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionGhost: { backgroundColor: 'transparent', borderWidth: 1 },
-  actionText: { fontSize: 12.5, fontFamily: Fonts.sansMedium },
+  actionFill: {
+    borderRadius: 13,
+    paddingHorizontal: Spacing.three + Spacing.one,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  actionGhost: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    paddingHorizontal: Spacing.three + Spacing.one,
+  },
+  actionText: { fontSize: 12.5, fontFamily: Fonts.uiMedium },
 });

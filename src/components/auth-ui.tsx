@@ -10,7 +10,7 @@ import Svg, { Defs, FeGaussianBlur, Filter, Rect } from 'react-native-svg';
 
 import { AppleIcon, GoogleIcon } from '@/components/provider-icons';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, CtaGradientShell, Fonts, HeadlineGradient, Spacing } from '@/constants/theme';
 import {
   isAppleSignInAvailable,
   isGoogleConfigured,
@@ -22,9 +22,10 @@ import {
 const MaskedView =
   Platform.OS === 'web' ? null : require('@react-native-masked-view/masked-view').default;
 
-// Cyan → lavender, per the approved reference (both heading lines carry it).
-const HEADING_GRADIENT = ['#8FF0FF', '#B79CFF'] as const;
-const CTA_GRADIENT = ['#3B82F6', '#8B5CF6'] as const;
+// Brand-token ramps (design-language §1): sky→bright for heading words, the
+// app-shell blue→deep for the CTA. No purple anywhere — blue-on-black system.
+const HEADING_GRADIENT = HeadlineGradient;
+const CTA_GRADIENT = CtaGradientShell;
 
 /**
  * Brand lockup. `layout="row"` (default) puts the wordmark beside the mark for
@@ -71,7 +72,7 @@ function headingStyle(size?: number) {
 /** Heading word rendered in the brand blue→purple gradient. */
 export function GradientWord({ children, size }: { children: string; size?: number }) {
   const s = headingStyle(size);
-  if (!MaskedView) return <Text style={[s, { color: '#6BB6FF' }]}>{children}</Text>;
+  if (!MaskedView) return <Text style={[s, { color: Brand.blueElectric }]}>{children}</Text>;
   return (
     <MaskedView maskElement={<Text style={s}>{children}</Text>}>
       <LinearGradient colors={[...HEADING_GRADIENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
@@ -131,7 +132,7 @@ export function GradientCTA({
             height={box.height}
             rx={box.height / 2}
             ry={box.height / 2}
-            fill="#6C8CFF"
+            fill={Brand.blueBright}
             opacity={0.45}
             filter="url(#ctaGlowWide)"
           />
@@ -308,13 +309,14 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     marginTop: Spacing.one,
   },
-  // Light-weight display type, as in the reference — not a heavy bold.
+  // Archivo display voice (design-language §2). The site's face runs wdth 122,
+  // which static instances lack — the tighter letterSpacing compensates.
   heading: {
     fontSize: 44,
     lineHeight: 47,
-    fontFamily: Fonts.sansMedium,
+    fontFamily: Fonts.display,
     color: '#FFFFFF',
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
   ctaWrap: {
     borderRadius: 999,
@@ -328,7 +330,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two + 2,
     height: 44,
   },
-  ctaText: { color: '#FFFFFF', fontSize: 14, fontFamily: Fonts.sansSemiBold },
+  ctaText: { color: '#FFFFFF', fontSize: 15, fontFamily: Fonts.uiBold },
   ctaArrowRing: {
     width: 24,
     height: 24,

@@ -34,7 +34,7 @@ import {
 } from '@/components/glass-credential-form';
 import { SignupGlassPanel } from '@/components/signup-glass-panel';
 import { useBrandColors } from '@/components/ui/form';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Brand, Fonts, Spacing } from '@/constants/theme';
 import { login, resolveMfaLogin } from '@/lib/api';
 import { GATE_REASON, useReturnAfterAuth, type GatedAction } from '@/lib/auth-gate';
 
@@ -224,7 +224,7 @@ export default function SignInScreen() {
 
                   <Link
                     href="/forgot-password"
-                    style={[styles.forgot, { color: '#A78BFA' }]}
+                    style={[styles.forgot, { color: Brand.authAccent }]}
                   >
                     Forgot password?
                   </Link>

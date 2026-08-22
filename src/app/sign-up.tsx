@@ -29,7 +29,7 @@ import {
   SocialAuthButtons,
 } from '@/components/auth-ui';
 import { Field, FormError, useBrandColors } from '@/components/ui/form';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Brand, Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import {
   usernameProblem,
   useUsernameAvailability,
@@ -174,7 +174,7 @@ export default function SignUpScreen() {
       case 'checking':
         return { text: 'Checking availability…', color: c.textSecondary };
       case 'available':
-        return { text: 'Username is available.', color: '#34D399' };
+        return { text: 'Username is available.', color: Brand.successSoft };
       case 'taken':
         return { text: 'Username is already taken.', color: c.danger };
       case 'reserved':
@@ -304,7 +304,7 @@ export default function SignUpScreen() {
                     onSubmitEditing={() => emailRef.current?.focus()}
                     rightSlot={
                       availability === 'available' ? (
-                        <Ionicons name="checkmark-circle" size={18} color="#34D399" />
+                        <Ionicons name="checkmark-circle" size={18} color={Brand.successSoft} />
                       ) : availability === 'taken' ||
                         availability === 'reserved' ||
                         availability === 'invalid' ? (
@@ -391,8 +391,8 @@ export default function SignUpScreen() {
                                     ? seg === 1 && strength.score === 1
                                       ? c.danger
                                       : seg <= 2 && strength.score === 2
-                                        ? '#F5B14C'
-                                        : '#7C3AED'
+                                        ? Brand.amberDue
+                                        : Brand.successSoft
                                     : c.backgroundSelected,
                               },
                             ]}
@@ -421,7 +421,7 @@ export default function SignUpScreen() {
                             <Ionicons
                               name={met ? 'checkmark-circle' : 'ellipse-outline'}
                               size={13}
-                              color={met ? '#34D399' : c.textFaint}
+                              color={met ? Brand.successSoft : c.textFaint}
                             />
                             <Text
                               style={[
