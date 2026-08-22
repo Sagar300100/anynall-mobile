@@ -27,9 +27,13 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "googleServicesFile": "./android/app/google-services.json"
+      "googleServicesFile": "./android/app/google-services.json",
+      "runtimeVersion": "1.0.0"
     },
     "web": {
       "output": "static",
@@ -97,6 +101,9 @@
         "projectId": "3962a3d9-5dbc-46bb-a312-b4926b3d2b4e"
       }
     },
-    "owner": "anynalls-team"
+    "owner": "anynalls-team",
+    "updates": {
+      "url": "https://u.expo.dev/3962a3d9-5dbc-46bb-a312-b4926b3d2b4e"
+    }
   }
 }
