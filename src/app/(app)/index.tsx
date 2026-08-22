@@ -62,14 +62,14 @@ import type { ShowData } from '@/lib/api';
  * lands on in Browse (Sneakers and Streetwear share one combined category).
  */
 const BENTO_TILES = [
-  { label: 'Sneakers', cat: 'Sneakers & Streetwear', src: require('../../../assets/categories/sneakers.webp') },
-  { label: 'Streetwear', cat: 'Sneakers & Streetwear', src: require('../../../assets/categories/streetwear.webp') },
-  { label: 'Collectibles', cat: 'Collectibles', src: require('../../../assets/categories/collectibles.webp') },
-  { label: 'Vintage & Antiques', cat: 'Vintage & Antiques', src: require('../../../assets/categories/vintage.webp') },
-  { label: 'Fashion', cat: 'Fashion', src: require('../../../assets/categories/fashion.webp') },
-  { label: 'Bags & Accessories', cat: 'Bags & Accessories', src: require('../../../assets/categories/bags.webp') },
-  { label: 'Toys & Hobbies', cat: 'Toys & Hobbies', src: require('../../../assets/categories/toys.webp') },
-  { label: 'Sports', cat: 'Sports', src: require('../../../assets/categories/sports.webp') },
+  { label: 'Sneakers', cat: 'Sneakers & Streetwear', src: require('../../../assets/categories/sneakers-tile.webp') },
+  { label: 'Streetwear', cat: 'Sneakers & Streetwear', src: require('../../../assets/categories/streetwear-tile.webp') },
+  { label: 'Collectibles', cat: 'Collectibles', src: require('../../../assets/categories/collectibles-tile.webp') },
+  { label: 'Vintage & Antiques', cat: 'Vintage & Antiques', src: require('../../../assets/categories/vintage-tile.webp') },
+  { label: 'Fashion', cat: 'Fashion', src: require('../../../assets/categories/fashion-tile.webp') },
+  { label: 'Bags & Accessories', cat: 'Bags & Accessories', src: require('../../../assets/categories/bags-tile.webp') },
+  { label: 'Toys & Hobbies', cat: 'Toys & Hobbies', src: require('../../../assets/categories/toys-tile.webp') },
+  { label: 'Sports', cat: 'Sports', src: require('../../../assets/categories/sports-tile.webp') },
 ] as const;
 
 /** Fixed text-block height under the 16:10 thumb keeps grid rows aligned. */
